@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:bbs.itying.com)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:developer.huawei.com)"
+    ]
+  }
+}
