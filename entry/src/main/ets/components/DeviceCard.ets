@@ -1,10 +1,9 @@
 /**
  * 设备控制卡片 · 经典鸿蒙浅色
- * 白底卡片 + 设备类型彩色图标 + 鸿蒙蓝开关
  */
 import { AppCard } from './AppCard';
 import { AppIcon } from './AppIcon';
-import { Device, DeviceType, DeviceStatus, ControlParams } from '../api/types';
+import { Device, DeviceType, ControlParams } from '../api/types';
 import { DeviceApi } from '../api/deviceApi';
 import { AppColors } from '../theme/Colors';
 import { AppSpace } from '../theme/Spacing';
@@ -25,35 +24,27 @@ export struct DeviceCard {
   }
 
   private get iconColor(): string {
-    switch (this.device.type) {
-      case DeviceType.FAN: return AppColors.DEVICE_FAN;
-      case DeviceType.AC: return AppColors.DEVICE_AC;
-      case DeviceType.DOOR: return AppColors.DEVICE_DOOR;
-      case DeviceType.LIGHT: return AppColors.DEVICE_LIGHT;
-      case DeviceType.CAMERA: return AppColors.DEVICE_CAMERA;
-      default: return AppColors.PRIMARY;
-    }
+    if (this.device.type === DeviceType.FAN) return AppColors.DEVICE_FAN;
+    if (this.device.type === DeviceType.AC) return AppColors.DEVICE_AC;
+    if (this.device.type === DeviceType.DOOR) return AppColors.DEVICE_DOOR;
+    if (this.device.type === DeviceType.LIGHT) return AppColors.DEVICE_LIGHT;
+    return AppColors.PRIMARY;
   }
 
   private get iconBg(): string {
-    switch (this.device.type) {
-      case DeviceType.FAN: return AppColors.DEVICE_FAN_BG;
-      case DeviceType.AC: return AppColors.DEVICE_AC_BG;
-      case DeviceType.DOOR: return AppColors.DEVICE_DOOR_BG;
-      case DeviceType.LIGHT: return AppColors.DEVICE_LIGHT_BG;
-      case DeviceType.CAMERA: return AppColors.DEVICE_CAMERA_BG;
-      default: return AppColors.PRIMARY_BG;
-    }
+    if (this.device.type === DeviceType.FAN) return AppColors.DEVICE_FAN_BG;
+    if (this.device.type === DeviceType.AC) return AppColors.DEVICE_AC_BG;
+    if (this.device.type === DeviceType.DOOR) return AppColors.DEVICE_DOOR_BG;
+    if (this.device.type === DeviceType.LIGHT) return AppColors.DEVICE_LIGHT_BG;
+    return AppColors.PRIMARY_BG;
   }
 
   private get valueLabel(): string {
-    switch (this.device.type) {
-      case DeviceType.FAN: return `${this.localValue} 档`;
-      case DeviceType.AC: return `${this.localValue}°C`;
-      case DeviceType.DOOR: return this.localOn ? '已开锁' : '已锁定';
-      case DeviceType.LIGHT: return `${this.localValue}%`;
-      default: return '';
-    }
+    if (this.device.type === DeviceType.FAN) return `${this.localValue} 档`;
+    if (this.device.type === DeviceType.AC) return `${this.localValue}°C`;
+    if (this.device.type === DeviceType.DOOR) return this.localOn ? '已开锁' : '已锁定';
+    if (this.device.type === DeviceType.LIGHT) return `${this.localValue}%`;
+    return '';
   }
 
   async toggle(): Promise<void> {
@@ -69,8 +60,7 @@ export struct DeviceCard {
     this.localValue = next;
     const action = this.device.type === DeviceType.FAN ? 'set_speed'
       : this.device.type === DeviceType.AC ? 'set_temp' : 'set_brightness';
-    const params: ControlParams = { value: next };
-    await DeviceApi.control(this.device.id, action, params);
+    await DeviceApi.control(this.device.id, action, { value: next } as ControlParams);
   }
 
   @Builder
@@ -133,9 +123,7 @@ export struct DeviceCard {
       onClickAction: () => { if (this.onTap) this.onTap(this.device); }
     }) {
       Column({ space: AppSpace.MD }) {
-        // 顶部: 图标 + 名称 + 开关
         Row() {
-          // 设备图标（彩色底圆形）
           Column() {
             AppIcon({ iconRes: this.device.icon, iconSize: 20, iconColor: this.iconColor })
           }
@@ -167,7 +155,6 @@ export struct DeviceCard {
         .width('100%')
         .alignItems(VerticalAlign.Center)
 
-        // 控制区
         this.controlArea()
       }
       .width('100%')

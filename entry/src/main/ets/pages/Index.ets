@@ -8,8 +8,6 @@ import { HistoryPage } from './HistoryPage';
 import { ChatPage } from './ChatPage';
 import { MinePage } from './MinePage';
 import { AppColors } from '../theme/Colors';
-import { AppSpace } from '../theme/Spacing';
-import { AppFont } from '../theme/Typography';
 
 @Entry
 @Component
@@ -52,13 +50,11 @@ struct Index {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      // 1. 页面背景（浅灰）
       Column()
         .width('100%')
         .height('100%')
         .backgroundColor(AppColors.BG_PAGE)
 
-      // 2. 页面内容区
       Column() {
         this.pageContent()
       }
@@ -66,13 +62,12 @@ struct Index {
       .height('100%')
       .padding({ bottom: 80 })
 
-      // 3. 底部 Tab 栏（白底 + 顶部细线）
+      // 底部 Tab 栏
       Row() {
         Column() { this.tabItem(0, $r('sys.symbol.house'), '首页', this.currentIndex === 0) }
           .layoutWeight(1).height('100%')
         Column() { this.tabItem(1, $r('sys.symbol.eye_viewfinder'), '监控', this.currentIndex === 1) }
           .layoutWeight(1).height('100%')
-        // 中间凸起占位
         Column().layoutWeight(1).height('100%')
         Column() { this.tabItem(2, $r('sys.symbol.clock_fill'), '历史', this.currentIndex === 2) }
           .layoutWeight(1).height('100%')
@@ -85,7 +80,7 @@ struct Index {
       .border({ width: { top: 0.5 }, color: AppColors.HAIRLINE })
       .shadow(ShadowStyle.OUTER_DEFAULT_MD)
 
-      // 4. 中间 AI 圆形入口
+      // 中间 AI 圆形入口
       Column() {
         Column() {
           SymbolGlyph($r('sys.symbol.mic_fill'))

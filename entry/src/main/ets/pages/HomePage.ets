@@ -2,7 +2,6 @@
  * 首页 · 经典鸿蒙浅色
  */
 import { DeviceCard } from '../components/DeviceCard';
-import { SensorCard } from '../components/SensorCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { StatRing } from '../components/StatRing';
 import { AppCard } from '../components/AppCard';
@@ -121,45 +120,16 @@ export struct HomePage {
               GridItem() {
                 DeviceCard({
                   device: d,
-                  onTap: (dev: Device) => {}
+                  onTap: () => {}
                 })
               }
             }, (d: Device) => d.id)
-
-            // 添加设备卡片
-            GridItem() {
-              AppCard({
-                innerPadding: AppSpace.BASE,
-                cornerRadius: AppSpace.RADIUS_CARD,
-                onClickAction: () => {}
-              }) {
-                Column({ space: AppSpace.SM }) {
-                  Column() {
-                    SymbolGlyph($r('sys.symbol.plus'))
-                      .fontSize(24)
-                      .fontColor([AppColors.TEXT_TERTIARY])
-                  }
-                  .width(40).height(40)
-                  .borderRadius(20)
-                  .backgroundColor(AppColors.BG_INPUT)
-                  .justifyContent(FlexAlign.Center)
-                  .alignItems(HorizontalAlign.Center)
-                  Text('添加设备')
-                    .fontSize(AppFont.SIZE_BODY)
-                    .fontColor(AppColors.TEXT_TERTIARY)
-                    .fontWeight(FontWeight.Medium)
-                }
-                .width('100%')
-                .alignItems(HorizontalAlign.Center)
-                .justifyContent(FlexAlign.Center)
-              }
-            }
           }
           .columnsTemplate('1fr 1fr')
           .columnsGap(AppSpace.CARD_GAP)
           .rowsGap(AppSpace.CARD_GAP)
           .width('100%')
-          .height(Math.ceil((this.devices.filter((d: Device) => d.type !== DeviceType.CAMERA).length + 1) / 2) * 130)
+          .height(this.devices.filter((d: Device) => d.type !== DeviceType.CAMERA).length * 120)
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)
