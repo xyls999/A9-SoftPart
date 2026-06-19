@@ -7,13 +7,23 @@ import { Camera, DeviceStatus } from '../../api/types';
 import { AppColors } from '../../theme/Colors';
 import { AppSpace } from '../../theme/Spacing';
 import { AppFont } from '../../theme/Typography';
+import { router } from '@kit.ArkUI';
 
+interface CameraDetailParams {
+  cameraId: string;
+}
+
+@Entry
 @Component
-export struct CameraDetailPage {
+struct CameraDetailPage {
   @State camera: Camera | null = null;
   @State cameraId: string = 'cam_01';
 
   aboutToAppear(): void {
+    const params = router.getParams() as CameraDetailParams;
+    if (params && params.cameraId) {
+      this.cameraId = params.cameraId;
+    }
     this.loadData();
   }
 
@@ -110,7 +120,7 @@ export struct CameraDetailPage {
             // 控制按钮组
             AppCard({ innerPadding: AppSpace.BASE }) {
               Row({ space: AppSpace.MD }) {
-                this.ctrlBtn(this.camera.isRecording ? $r('sys.symbol.stop_fill') : $r('sys.symbol.record_circle'), this.camera.isRecording ? '停止' : '录像',
+                this.ctrlBtn(this.camera.isRecording ? $r('sys.symbol.stop_circle_fill') : $r('sys.symbol.record_circle'), this.camera.isRecording ? '停止' : '录像',
                   async () => {
                     if (this.camera) {
                       const next = !this.camera.isRecording;
@@ -122,9 +132,9 @@ export struct CameraDetailPage {
                       };
                     }
                   })
-                this.ctrlBtn($r('sys.symbol.camera_circle'), '截图', () => {})
+                this.ctrlBtn($r('sys.symbol.camera_circle_fill'), '截图', () => {})
                 this.ctrlBtn($r('sys.symbol.phone_fill'), '通话', () => {})
-                this.ctrlBtn($r('sys.symbol.arrow_counterclockwise_circle'), '回放', () => {})
+                this.ctrlBtn($r('sys.symbol.arrow_counterclockwise'), '回放', () => {})
               }
               .width('100%')
               .justifyContent(FlexAlign.SpaceAround)

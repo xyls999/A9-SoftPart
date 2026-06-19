@@ -1,12 +1,6 @@
 /**
  * 通用卡片组件 · 经典鸿蒙浅色风格
- * 取代旧 GlassCard：白底 + 微弱阴影 + 克制圆角
- * 动效: 仅点击时微缩放（无呼吸光/扫光）
- *
- * 用法:
- *   AppCard({ innerPadding: 16 }) {
- *     // 卡片内容
- *   }
+ * 动效: 入场上移淡入 + 点击微缩放
  */
 import { AppColors } from '../theme/Colors';
 import { AppSpace } from '../theme/Spacing';
@@ -18,9 +12,19 @@ export struct AppCard {
   @Prop cornerRadius: number = AppSpace.RADIUS_CARD;
   @Prop bgColor: string = AppColors.BG_CARD;
   @Prop clickable: boolean = true;
+  @Prop animateIn: boolean = true;
   @State pressed: boolean = false;
+  @State appeared: boolean = false;
   @BuilderParam content: () => void;
   onClickAction?: () => void;
+
+  aboutToAppear(): void {
+    if (this.animateIn) {
+      setTimeout(() => { this.appeared = true; }, 30);
+    } else {
+      this.appeared = true;
+    }
+  }
 
   build() {
     Column() {
@@ -36,7 +40,9 @@ export struct AppCard {
       x: this.pressed ? TapEffect.PRESSED : TapEffect.NORMAL,
       y: this.pressed ? TapEffect.PRESSED : TapEffect.NORMAL
     })
-    .animation({ duration: TapEffect.DURATION, curve: Curve.EaseInOut })
+    .opacity(this.appeared ? 1 : 0)
+    .translate({ y: this.appeared ? 0 : 14 })
+    .animation({ duration: 300, curve: Curve.EaseOut })
     .onClick(() => { if (this.onClickAction) this.onClickAction(); })
     .onTouch((e: TouchEvent) => {
       if (!this.clickable) return;

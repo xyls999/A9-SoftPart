@@ -8,8 +8,10 @@ import { AppCard } from '../components/AppCard';
 import { AppIcon } from '../components/AppIcon';
 import { DeviceApi } from '../api/deviceApi';
 import { SensorApi } from '../api/sensorApi';
-import { Device, Sensor, Scene, SensorGroup, DeviceType } from '../api/types';
+import { Device, Sensor, Scene, SensorGroup, DeviceType, RouterDeviceParam } from '../api/types';
 import { MockData } from '../mock/mockData';
+import { router, promptAction } from '@kit.ArkUI';
+import { SceneApi } from '../api/sceneApi';
 import { AppColors } from '../theme/Colors';
 import { AppSpace } from '../theme/Spacing';
 import { AppFont } from '../theme/Typography';
@@ -20,9 +22,19 @@ export struct HomePage {
   @State envSensors: Sensor[] = [];
   @State scenes: Scene[] = [];
   @State activeSceneId: string = 's1';
+  @State gradAngle: number = 135;
+  private gradTimer: number = -1;
 
   aboutToAppear(): void {
     this.loadData();
+    // 顶部渐变缓慢流动（30s 一圈）
+    this.gradTimer = setInterval(() => {
+      this.gradAngle = (this.gradAngle + 2) % 360;
+    }, 500);
+  }
+
+  aboutToDisappear(): void {
+    if (this.gradTimer !== -1) clearInterval(this.gradTimer);
   }
 
   async loadData(): Promise<void> {
@@ -43,36 +55,53 @@ export struct HomePage {
   build() {
     Scroll() {
       Column({ space: AppSpace.BASE }) {
-        // ===== 1. 问候头图 =====
-        Row() {
-          Column({ space: 4 }) {
-            Text(`${this.getGreeting()}，${MockData.user.nickname}`)
-              .fontSize(AppFont.SIZE_TITLE_LG)
-              .fontColor(AppColors.TEXT_PRIMARY)
-              .fontWeight(FontWeight.Bold)
-            Row({ space: 6 }) {
-              AppIcon({ iconRes: MockData.weather.icon, iconSize: 14, iconColor: AppColors.TEXT_TERTIARY })
-              Text(`${MockData.weather.city} · ${MockData.weather.condition} ${MockData.weather.temp}°C`)
-                .fontSize(AppFont.SIZE_FOOTNOTE)
-                .fontColor(AppColors.TEXT_TERTIARY)
+        // ===== 1. 问候头图（带柔和渐变流动背景）=====
+        Stack({ alignContent: Alignment.TopStart }) {
+          // 流动渐变背景层（极淡）
+          Column()
+            .width('100%')
+            .height(120)
+            .linearGradient({
+              angle: this.gradAngle,
+              colors: [['#0A007DFF', 0.0], ['#0AF5A623', 0.5], ['#0A9B6DFF', 1.0]]
+            })
+            .animation({ duration: 500, curve: Curve.Linear })
+
+          // 内容层
+          Row() {
+            Column({ space: 4 }) {
+              Text(`${this.getGreeting()}，${MockData.user.nickname}`)
+                .fontSize(AppFont.SIZE_TITLE_LG)
+                .fontColor(AppColors.TEXT_PRIMARY)
+                .fontWeight(FontWeight.Bold)
+              Row({ space: 6 }) {
+                AppIcon({ iconRes: MockData.weather.icon, iconSize: 14, iconColor: AppColors.TEXT_TERTIARY })
+                Text(`${MockData.weather.city} · ${MockData.weather.condition} ${MockData.weather.temp}°C`)
+                  .fontSize(AppFont.SIZE_FOOTNOTE)
+                  .fontColor(AppColors.TEXT_TERTIARY)
+              }
             }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            Column() {
+              Text(MockData.user.nickname.charAt(0))
+                .fontSize(AppFont.SIZE_BODY_LG)
+                .fontColor(AppColors.PRIMARY)
+                .fontWeight(FontWeight.Medium)
+            }
+            .width(44).height(44)
+            .borderRadius(22)
+            .backgroundColor(AppColors.BG_CARD)
+            .justifyContent(FlexAlign.Center)
+            .alignItems(HorizontalAlign.Center)
           }
-          .alignItems(HorizontalAlign.Start)
-          .layoutWeight(1)
-          Column() {
-            Text(MockData.user.nickname.charAt(0))
-              .fontSize(AppFont.SIZE_BODY_LG)
-              .fontColor(AppColors.PRIMARY)
-              .fontWeight(FontWeight.Medium)
-          }
-          .width(44).height(44)
-          .borderRadius(22)
-          .backgroundColor(AppColors.PRIMARY_BG)
-          .justifyContent(FlexAlign.Center)
-          .alignItems(HorizontalAlign.Center)
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+          .padding({ left: AppSpace.BASE, right: AppSpace.BASE, top: AppSpace.LG, bottom: AppSpace.LG })
         }
         .width('100%')
-        .alignItems(VerticalAlign.Center)
+        .clip(true)
+        .borderRadius(AppSpace.RADIUS_CARD)
 
         // ===== 2. 场景快捷 =====
         Column({ space: AppSpace.SM }) {
@@ -85,22 +114,27 @@ export struct HomePage {
                     AppIcon({
                       iconRes: s.icon,
                       iconSize: 22,
-                      iconColor: this.activeSceneId === s.id ? AppColors.PRIMARY : AppColors.TEXT_TERTIARY
+                      iconColor: s.isActive ? AppColors.PRIMARY : AppColors.TEXT_TERTIARY
                     })
                   }
                   .width(52).height(52)
                   .borderRadius(26)
-                  .backgroundColor(this.activeSceneId === s.id ? AppColors.PRIMARY_BG : AppColors.BG_CARD)
+                  .backgroundColor(s.isActive ? AppColors.PRIMARY_BG : AppColors.BG_CARD)
                   .justifyContent(FlexAlign.Center)
                   .alignItems(HorizontalAlign.Center)
                   Text(s.name)
                     .fontSize(AppFont.SIZE_CAPTION)
-                    .fontColor(this.activeSceneId === s.id ? AppColors.PRIMARY : AppColors.TEXT_TERTIARY)
-                    .fontWeight(this.activeSceneId === s.id ? FontWeight.Medium : FontWeight.Regular)
+                    .fontColor(s.isActive ? AppColors.PRIMARY : AppColors.TEXT_TERTIARY)
+                    .fontWeight(s.isActive ? FontWeight.Medium : FontWeight.Regular)
                 }
                 .width(64)
                 .alignItems(HorizontalAlign.Center)
-                .onClick(() => { this.activeSceneId = s.id; })
+                .onClick(async () => {
+                  const msg = await SceneApi.activate(s.id);
+                  promptAction.showToast({ message: msg, duration: 2000 });
+                  this.scenes = MockData.scenes.slice();
+                  this.devices = await DeviceApi.getDevices();
+                })
               }, (s: Scene) => s.id)
             }
             .padding({ top: AppSpace.XS })
@@ -114,13 +148,44 @@ export struct HomePage {
 
         // ===== 3. 设备卡片网格 =====
         Column({ space: AppSpace.SM }) {
-          SectionHeader({ title: '我的设备', subtitle: `${this.devices.length} 台设备在线`, actionText: '全部 >', onAction: () => {} })
+          Row() {
+            Column({ space: 2 }) {
+              Text('我的设备')
+                .fontSize(AppFont.SIZE_BODY_LG)
+                .fontColor(AppColors.TEXT_PRIMARY)
+                .fontWeight(FontWeight.Medium)
+              Text(`${this.devices.length} 台设备`)
+                .fontSize(AppFont.SIZE_FOOTNOTE)
+                .fontColor(AppColors.TEXT_TERTIARY)
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            // 添加设备按钮
+            Column() {
+              SymbolGlyph($r('sys.symbol.plus'))
+                .fontSize(16)
+                .fontColor([AppColors.PRIMARY])
+            }
+            .width(32).height(32)
+            .borderRadius(16)
+            .backgroundColor(AppColors.PRIMARY_BG)
+            .justifyContent(FlexAlign.Center)
+            .alignItems(HorizontalAlign.Center)
+            .onClick(() => {
+              router.pushUrl({ url: 'pages/AddDevicePage' });
+            })
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
           Grid() {
             ForEach(this.devices.filter((d: Device) => d.type !== DeviceType.CAMERA), (d: Device) => {
               GridItem() {
                 DeviceCard({
                   device: d,
-                  onTap: () => {}
+                  onTap: (dev: Device) => {
+                    const p: RouterDeviceParam = { deviceId: dev.id };
+                    router.pushUrl({ url: 'pages/detail/DeviceDetailPage', params: p });
+                  }
                 })
               }
             }, (d: Device) => d.id)
@@ -191,9 +256,9 @@ export struct HomePage {
             .alignItems(HorizontalAlign.Start)
             .margin({ left: AppSpace.SM })
             .layoutWeight(1)
-            Text('›')
-              .fontSize(22)
-              .fontColor(AppColors.TEXT_TERTIARY)
+            SymbolGlyph($r('sys.symbol.chevron_right'))
+              .fontSize(16)
+              .fontColor([AppColors.TEXT_TERTIARY])
           }
           .width('100%')
           .alignItems(VerticalAlign.Center)

@@ -4,7 +4,12 @@
       "WebSearch",
       "WebFetch(domain:bbs.itying.com)",
       "WebFetch(domain:dev.to)",
-      "WebFetch(domain:developer.huawei.com)"
+      "WebFetch(domain:developer.huawei.com)",
+      "Bash(git stash *)",
+      "Bash(git checkout *)",
+      "Bash(taskkill //F //IM \"devecostudio64.exe\")",
+      "Bash(taskkill //F //IM \"node.exe\")",
+      "Bash(cmd.exe /c 'start \"\" \"D:\\\\devEco\\\\DevEco Studio\\\\bin\\\\devecostudio64.exe\" \"D:\\\\Harmon\"')"
     ]
   }
 }

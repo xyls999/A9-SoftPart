@@ -8,13 +8,23 @@ import { Sensor } from '../../api/types';
 import { AppColors } from '../../theme/Colors';
 import { AppSpace } from '../../theme/Spacing';
 import { AppFont } from '../../theme/Typography';
+import { router } from '@kit.ArkUI';
 
+interface SensorDetailParams {
+  sensorId: string;
+}
+
+@Entry
 @Component
-export struct SensorDetailPage {
+struct SensorDetailPage {
   @State sensor: Sensor | null = null;
   @State sensorId: string = 'temp_01';
 
   aboutToAppear(): void {
+    const params = router.getParams() as SensorDetailParams;
+    if (params && params.sensorId) {
+      this.sensorId = params.sensorId;
+    }
     this.loadData();
   }
 

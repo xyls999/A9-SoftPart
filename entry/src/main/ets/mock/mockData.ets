@@ -177,11 +177,50 @@ export class MockData {
 
   // ============ 场景 ============
   static readonly scenes: Scene[] = [
-    { id: 's1', name: '回家', icon: $r('sys.symbol.house_fill'), color: '#0A84FF', isActive: true },
-    { id: 's2', name: '离家', icon: $r('sys.symbol.figure_walk'), color: '#FF9F0A', isActive: false },
-    { id: 's3', name: '睡眠', icon: $r('sys.symbol.moon_fill'), color: '#5E6CE6', isActive: false },
-    { id: 's4', name: '观影', icon: $r('sys.symbol.film'), color: '#BF5AF2', isActive: false },
-    { id: 's5', name: '用餐', icon: $r('sys.symbol.fork_knife'), color: '#30D158', isActive: false }
+    {
+      id: 's1', name: '回家', icon: $r('sys.symbol.house_fill'), color: '#0A84FF', isActive: true,
+      actions: [
+        { deviceId: 'fan_01', isOn: true, primaryValue: 2 },
+        { deviceId: 'ac_01', isOn: true, primaryValue: 24 },
+        { deviceId: 'light_01', isOn: true, primaryValue: 80 }
+      ]
+    },
+    {
+      id: 's2', name: '离家', icon: $r('sys.symbol.figure_walk'), color: '#FF9F0A', isActive: false,
+      actions: [
+        { deviceId: 'fan_01', isOn: false },
+        { deviceId: 'fan_02', isOn: false },
+        { deviceId: 'ac_01', isOn: false },
+        { deviceId: 'ac_02', isOn: false },
+        { deviceId: 'light_01', isOn: false },
+        { deviceId: 'light_02', isOn: false },
+        { deviceId: 'door_01', isOn: false }
+      ]
+    },
+    {
+      id: 's3', name: '睡眠', icon: $r('sys.symbol.moon_fill'), color: '#5E6CE6', isActive: false,
+      actions: [
+        { deviceId: 'light_01', isOn: false },
+        { deviceId: 'light_02', isOn: false },
+        { deviceId: 'ac_01', isOn: true, primaryValue: 26 },
+        { deviceId: 'fan_01', isOn: false }
+      ]
+    },
+    {
+      id: 's4', name: '观影', icon: $r('sys.symbol.film'), color: '#BF5AF2', isActive: false,
+      actions: [
+        { deviceId: 'light_01', isOn: true, primaryValue: 20 },
+        { deviceId: 'light_02', isOn: false },
+        { deviceId: 'ac_01', isOn: true, primaryValue: 24 }
+      ]
+    },
+    {
+      id: 's5', name: '用餐', icon: $r('sys.symbol.fork_knife'), color: '#30D158', isActive: false,
+      actions: [
+        { deviceId: 'light_01', isOn: true, primaryValue: 60 },
+        { deviceId: 'fan_01', isOn: true, primaryValue: 1 }
+      ]
+    }
   ];
 
   // ============ 天气 ============

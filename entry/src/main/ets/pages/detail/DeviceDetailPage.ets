@@ -7,13 +7,24 @@ import { Device, DeviceType, DeviceStatus } from '../../api/types';
 import { AppColors } from '../../theme/Colors';
 import { AppSpace } from '../../theme/Spacing';
 import { AppFont } from '../../theme/Typography';
+import { router } from '@kit.ArkUI';
 
+interface DeviceDetailParams {
+  deviceId: string;
+}
+
+@Entry
 @Component
-export struct DeviceDetailPage {
+struct DeviceDetailPage {
   @State device: Device | null = null;
   @State deviceId: string = 'fan_01';
 
   aboutToAppear(): void {
+    // 接收路由参数
+    const params = router.getParams() as DeviceDetailParams;
+    if (params && params.deviceId) {
+      this.deviceId = params.deviceId;
+    }
     this.loadData();
   }
 

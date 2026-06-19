@@ -161,7 +161,25 @@ export interface ServerStatus {
   storageUsage: number;  // %
 }
 
+// ============ 路由参数（router.pushUrl 的 params）============
+export interface RouterDeviceParam {
+  deviceId: string;
+}
+export interface RouterSensorParam {
+  sensorId: string;
+}
+export interface RouterCameraParam {
+  cameraId: string;
+}
+
 // ============ 场景 ============
+/** 场景动作：对某设备执行某操作 */
+export interface SceneAction {
+  deviceId: string;
+  isOn: boolean;
+  primaryValue?: number;
+}
+
 export interface Scene {
   id: string;
   name: string;
@@ -169,6 +187,8 @@ export interface Scene {
   icon: Resource;
   color: string;
   isActive: boolean;
+  /** 该场景触发的设备动作列表 */
+  actions: SceneAction[];
 }
 
 // ============ 天气 ============

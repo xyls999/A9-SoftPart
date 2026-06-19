@@ -1,6 +1,7 @@
 /**
  * 滚动数字 · 克制版
  * 数值变化时简单缓动到新值（无轮询，靠 @Watch 触发）
+ * 动效: 数值滚动 + 字号脉冲放大
  */
 @Component
 export struct AnimatedNumber {
@@ -10,6 +11,7 @@ export struct AnimatedNumber {
   @Prop fontSize: number = 28;
   @Prop textColor: string = '#181818';
   @State display: number = 0;
+  @State pulse: number = 1;
   private animating: boolean = false;
 
   aboutToAppear(): void {
@@ -17,6 +19,10 @@ export struct AnimatedNumber {
   }
 
   onValueChange(): void {
+    // 触发脉冲
+    this.pulse = 1.08;
+    setTimeout(() => { this.pulse = 1; }, 200);
+
     if (this.animating) return;
     this.animating = true;
     const start = this.display;
@@ -42,5 +48,7 @@ export struct AnimatedNumber {
       .fontSize(this.fontSize)
       .fontColor(this.textColor)
       .fontWeight(FontWeight.Bold)
+      .scale({ x: this.pulse, y: this.pulse })
+      .animation({ duration: 200, curve: Curve.EaseOut })
   }
 }

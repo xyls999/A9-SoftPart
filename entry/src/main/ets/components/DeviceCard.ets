@@ -15,6 +15,7 @@ export struct DeviceCard {
   @State localOn: boolean = false;
   @State localValue: number = 0;
   @State localMode: string = '';
+  @State iconBounce: number = 1;
   onTap?: (device: Device) => void;
 
   aboutToAppear(): void {
@@ -50,6 +51,9 @@ export struct DeviceCard {
   async toggle(): Promise<void> {
     this.localOn = !this.localOn;
     await DeviceApi.toggle(this.device.id, this.localOn);
+    // 图标弹跳反馈
+    this.iconBounce = 1.2;
+    setTimeout(() => { this.iconBounce = 1; }, 150);
   }
 
   async adjust(delta: number): Promise<void> {
@@ -60,7 +64,8 @@ export struct DeviceCard {
     this.localValue = next;
     const action = this.device.type === DeviceType.FAN ? 'set_speed'
       : this.device.type === DeviceType.AC ? 'set_temp' : 'set_brightness';
-    await DeviceApi.control(this.device.id, action, { value: next } as ControlParams);
+    const ctrlParams: ControlParams = { value: next };
+    await DeviceApi.control(this.device.id, action, ctrlParams);
   }
 
   @Builder
@@ -107,9 +112,12 @@ export struct DeviceCard {
           .fontColor(this.localOn ? AppColors.WARNING : AppColors.TEXT_SECONDARY)
           .fontWeight(FontWeight.Medium)
         if (this.localOn) {
-          Text('● 开启中')
-            .fontSize(AppFont.SIZE_CAPTION)
-            .fontColor(AppColors.WARNING)
+          Row({ space: 3 }) {
+            Circle({ width: 5, height: 5 }).fill(AppColors.WARNING)
+            Text('开启中')
+              .fontSize(AppFont.SIZE_CAPTION)
+              .fontColor(AppColors.WARNING)
+          }
         }
       }
       .width('100%')
@@ -132,6 +140,8 @@ export struct DeviceCard {
           .backgroundColor(this.iconBg)
           .justifyContent(FlexAlign.Center)
           .alignItems(HorizontalAlign.Center)
+          .scale({ x: this.iconBounce, y: this.iconBounce })
+          .animation({ duration: 150, curve: Curve.EaseOut })
           Column({ space: 2 }) {
             Text(this.device.name)
               .fontSize(AppFont.SIZE_BODY)

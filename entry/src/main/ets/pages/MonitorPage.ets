@@ -7,10 +7,11 @@ import { SectionHeader } from '../components/SectionHeader';
 import { AppCard } from '../components/AppCard';
 import { MonitorApi } from '../api/monitorApi';
 import { SensorApi } from '../api/sensorApi';
-import { Camera, AlertMessage, Sensor, SensorGroup } from '../api/types';
+import { Camera, AlertMessage, Sensor, SensorGroup, RouterSensorParam, RouterCameraParam } from '../api/types';
 import { AppColors } from '../theme/Colors';
 import { AppSpace } from '../theme/Spacing';
 import { AppFont } from '../theme/Typography';
+import { router } from '@kit.ArkUI';
 
 @Component
 export struct MonitorPage {
@@ -41,7 +42,10 @@ export struct MonitorPage {
           GridItem() {
             SensorCard({
               sensor: s,
-              onTap: (sensor: Sensor) => {}
+              onTap: (sensor: Sensor) => {
+                const p: RouterSensorParam = { sensorId: sensor.id };
+                router.pushUrl({ url: 'pages/detail/SensorDetailPage', params: p });
+              }
             })
           }
         }, (s: Sensor) => s.id)
@@ -94,7 +98,10 @@ export struct MonitorPage {
               GridItem() {
                 CameraCard({
                   camera: c,
-                  onTap: (cam: Camera) => {}
+                  onTap: (cam: Camera) => {
+                    const p: RouterCameraParam = { cameraId: cam.id };
+                    router.pushUrl({ url: 'pages/detail/CameraDetailPage', params: p });
+                  }
                 })
               }
             }, (c: Camera) => c.id)

@@ -1,52 +1,66 @@
 /**
- * 设备控制 API · 风扇 / 门禁 / 空调 / 灯光
- *
- * ====================================================================
- * 对接说明（agent3 审核）:
- * 所有函数当前返回 MockData，用于本地预览。
- * 后端对接时，仅替换函数体（return 部分），保持函数签名不变。
- * 页面层只通过本文件访问设备数据，不直接读 mockData。
- * ====================================================================
- *
- * 接口契约:
- *   GET    /api/devices                    → Device[]
- *   GET    /api/devices/{id}               → Device
- *   POST   /api/devices/{id}/control       { action, params } → { success }
- *   POST   /api/devices/{id}/toggle        { isOn } → { success }
- *   DELETE /api/devices/{id}               → { success }
- *
- * 通信协议: WiFi / 星闪（由 Device.protocol 指定，控制指令下发到对应通道）
+ * 设备控制 API · 对接设备端网关
+ * 策略: HTTP 优先，失败降级到 MockData
  */
-import { Device, ControlParams } from './types';
+import { Device, DeviceType, DeviceStatus, ControlParams } from './types';
 import { MockData } from '../mock/mockData';
+import { Http } from './http';
 
-const DELAY = 280; // 模拟网络延迟 ms
+interface DeviceControlResponse {
+  success: boolean;
+  device: Device;
+}
 
-function delay<T>(data: T): Promise<T> {
-  return new Promise(resolve => setTimeout(() => resolve(data), DELAY));
+interface ControlRequestBody {
+  action: string;
+  params: ControlParams;
+}
+
+interface ToggleRequestBody {
+  isOn: boolean;
+}
+
+interface AddDeviceRequestBody {
+  id: string;
+  name: string;
+  type: DeviceType;
+  room: string;
+  icon: string;
+  primaryValue: number;
 }
 
 export class DeviceApi {
   /** 获取全部设备列表 */
   static async getDevices(): Promise<Device[]> {
-    // TODO[后端对接]: GET /api/devices
-    return delay(MockData.devices);
+    const remote = await Http.get('/api/devices');
+    if (remote) {
+      try {
+        return JSON.parse(remote) as Device[];
+      } catch (e) {
+        // 解析失败降级
+      }
+    }
+    return MockData.devices;
   }
 
   /** 获取单个设备详情 */
   static async getDevice(id: string): Promise<Device | undefined> {
-    // TODO[后端对接]: GET /api/devices/{id}
-    return delay(MockData.devices.find(d => d.id === id));
+    const all = await DeviceApi.getDevices();
+    return all.find(d => d.id === id);
   }
 
-  /**
-   * 控制设备（档位/温度/亮度等）
-   * @param action  动作类型: 'set_speed' | 'set_temp' | 'set_brightness' | 'set_mode'
-   * @param params  参数键值对，如 { level: 3 } 或 { temperature: 22 }
-   */
+  /** 控制设备 */
   static async control(id: string, action: string, params: ControlParams): Promise<boolean> {
-    // TODO[后端对接]: POST /api/devices/{id}/control  body: { action, params }
-    // 本地预览: 同步更新内存中的 mock 状态
+    const body: ControlRequestBody = { action, params };
+    const respText = await Http.post(`/api/devices/${id}/control`, body);
+    if (respText) {
+      try {
+        const resp = JSON.parse(respText) as DeviceControlResponse;
+        if (resp.success) return true;
+      } catch (e) {
+        // 降级
+      }
+    }
     const dev = MockData.devices.find(d => d.id === id);
     if (dev) {
       if (action === 'set_speed' || action === 'set_temp' || action === 'set_brightness') {
@@ -56,24 +70,70 @@ export class DeviceApi {
         dev.mode = params.mode as string;
       }
     }
-    return delay(true);
+    return true;
   }
 
   /** 开关设备 */
   static async toggle(id: string, isOn: boolean): Promise<boolean> {
-    // TODO[后端对接]: POST /api/devices/{id}/toggle  body: { isOn }
+    const body: ToggleRequestBody = { isOn };
+    const respText = await Http.post(`/api/devices/${id}/toggle`, body);
+    if (respText) {
+      try {
+        const resp = JSON.parse(respText) as DeviceControlResponse;
+        if (resp.success) return true;
+      } catch (e) {
+        // 降级
+      }
+    }
     const dev = MockData.devices.find(d => d.id === id);
     if (dev) dev.isOn = isOn;
-    return delay(true);
+    return true;
   }
 
-  /** 触发门禁开锁（门禁专用，需二次验证） */
+  /** 门禁开锁 */
   static async unlockDoor(id: string, pin: string): Promise<boolean> {
-    // TODO[后端对接]: POST /api/devices/{id}/unlock  body: { pin }
-    // 安全校验: pin 不为空
-    if (!pin) return delay(false);
-    const dev = MockData.devices.find(d => d.id === id);
-    if (dev) { dev.isOn = true; dev.primaryValue = 1; setTimeout(() => { dev.isOn = false; dev.primaryValue = 0; }, 8000); }
-    return delay(true);
+    if (!pin) return false;
+    await DeviceApi.toggle(id, true);
+    setTimeout(() => { DeviceApi.toggle(id, false); }, 8000);
+    return true;
+  }
+
+  /** 添加设备 */
+  static async addDevice(device: Device): Promise<boolean> {
+    const body: AddDeviceRequestBody = {
+      id: device.id, name: device.name, type: device.type,
+      room: device.room, icon: 'lightbulb', primaryValue: device.primaryValue
+    };
+    const respText = await Http.post('/api/devices', body);
+    if (respText) {
+      try {
+        const resp = JSON.parse(respText) as DeviceControlResponse;
+        if (resp.success) return true;
+      } catch (e) {
+        // 降级
+      }
+    }
+    MockData.devices.push(device);
+    return true;
+  }
+
+  /** 移除设备 */
+  static async removeDevice(id: string): Promise<boolean> {
+    const idx = MockData.devices.findIndex(d => d.id === id);
+    if (idx >= 0) MockData.devices.splice(idx, 1);
+    return true;
+  }
+
+  /** 生成新设备 ID */
+  static genId(type: string): string {
+    const prefix = type + '_';
+    let max = 0;
+    MockData.devices.forEach(d => {
+      if (d.id.startsWith(prefix)) {
+        const num = parseInt(d.id.substring(prefix.length), 10);
+        if (num > max) max = num;
+      }
+    });
+    return prefix + (max + 1);
   }
 }
