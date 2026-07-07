@@ -20,8 +20,10 @@ export struct MinePage {
   }
 
   async loadData(): Promise<void> {
-    this.user = await UserApi.getProfile();
-    this.server = await UserApi.getServerStatus();
+    const profilePromise = UserApi.getProfile();
+    const serverPromise = UserApi.getServerStatus();
+    this.user = await profilePromise;
+    this.server = await serverPromise;
   }
 
   @Builder

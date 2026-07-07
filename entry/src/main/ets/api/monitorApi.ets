@@ -5,6 +5,7 @@
 import { Camera, AlertMessage } from './types';
 import { MockData } from '../mock/mockData';
 import { Http } from './http';
+import { normalizeAlert, normalizeCamera } from './adapter';
 
 export class MonitorApi {
   /** 获取全部摄像头 */
@@ -12,7 +13,8 @@ export class MonitorApi {
     const remote = await Http.get('/api/cameras');
     if (remote) {
       try {
-        return JSON.parse(remote) as Camera[];
+        const data = JSON.parse(remote) as Record<string, Object>[];
+        return data.map((item: Record<string, Object>) => normalizeCamera(item));
       } catch (e) {
         // 降级
       }
@@ -37,7 +39,8 @@ export class MonitorApi {
     const remote = await Http.get('/api/alerts');
     if (remote) {
       try {
-        return JSON.parse(remote) as AlertMessage[];
+        const data = JSON.parse(remote) as Record<string, Object>[];
+        return data.map((item: Record<string, Object>) => normalizeAlert(item));
       } catch (e) {
         // 降级
       }

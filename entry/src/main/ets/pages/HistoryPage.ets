@@ -7,6 +7,8 @@ import { SectionHeader } from '../components/SectionHeader';
 import { MockData } from '../mock/mockData';
 import { AlertMessage, Device } from '../api/types';
 import { DeviceApi } from '../api/deviceApi';
+import { SensorApi } from '../api/sensorApi';
+import { MonitorApi } from '../api/monitorApi';
 import { AppColors } from '../theme/Colors';
 import { AppSpace } from '../theme/Spacing';
 import { AppFont } from '../theme/Typography';
@@ -35,22 +37,16 @@ export struct HistoryPage {
   @State todayEnergy: number = 14.3;
   @State chartExpanded: boolean = false;
   @State activeCompareKey: string = 'temp_humid';
+  @State realTempData: number[] = [22.5,22.0,21.8,22.1,23.0,24.1,25.2,26.0,26.5,25.8,24.3,23.1];
+  @State realHumidData: number[] = [58,60,62,61,56,52,48,45,43,46,50,55];
+  @State realLabels: string[] = ['0','2','4','6','8','10','12','14','16','18','20','22'];
   /** 近 7 天能耗模拟数据 */
   private weekEnergy: number[] = [12.1, 13.8, 11.5, 15.2, 14.3, 16.0, 11.9];
   /** 24 小时时间标签 */
   private hourLabels: string[] = ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18', '20', '22'];
 
-  /** 二维对比数据集 */
+  /** 二维对比数据集 (temp_humid 由 getter 动态返回,不在此处) */
   private compareSets: CompareSet[] = [
-    {
-      key: 'temp_humid',
-      label: '温度 · 湿度',
-      labelA: '温度 (°C)', labelB: '湿度 (%RH)',
-      colorA: AppColors.SENSOR_TEMP, colorB: AppColors.SENSOR_HUMID,
-      unitA: '°C', unitB: '%',
-      dataA: [22.5,22.0,21.8,22.1,23.0,24.1,25.2,26.0,26.5,25.8,24.3,23.1],
-      dataB: [58,60,62,61,56,52,48,45,43,46,50,55]
-    },
     {
       key: 'air_quality',
       label: 'PM2.5 · CO₂',
@@ -76,15 +72,52 @@ export struct HistoryPage {
   }
 
   async loadData(): Promise<void> {
-    this.alerts = MockData.alerts;
+    // 真实告警
+    const remoteAlerts = await MonitorApi.getAlerts();
+    this.alerts = remoteAlerts.length > 0 ? remoteAlerts : MockData.alerts;
+    // 真实设备
     this.devices = await DeviceApi.getDevices();
     this.deviceCount = this.devices.length;
     this.onlineCount = this.devices.filter((d: Device) => d.status !== 'offline').length;
     this.alertCount = this.alerts.filter((a: AlertMessage) => !a.isRead).length;
+    // 真实温湿度历史
+    const history = await SensorApi.getTempHumidHistory();
+    if (history.temp.length > 0) {
+      this.realTempData = history.temp;
+      this.realHumidData = history.humid;
+      this.realLabels = history.labels;
+    }
   }
 
   private get activeCompare(): CompareSet {
-    return this.compareSets.find((c: CompareSet) => c.key === this.activeCompareKey) ?? this.compareSets[0];
+    if (this.activeCompareKey === 'temp_humid') {
+      return {
+        key: 'temp_humid', label: '温度 · 湿度',
+        labelA: '温度 (°C)', labelB: '湿度 (%RH)',
+        colorA: AppColors.SENSOR_TEMP, colorB: AppColors.SENSOR_HUMID,
+        unitA: '°C', unitB: '%',
+        dataA: this.realTempData.length > 0 ? this.realTempData : [22.5,22.0,21.8,22.1,23.0,24.1,25.2,26.0,26.5,25.8,24.3,23.1],
+        dataB: this.realHumidData.length > 0 ? this.realHumidData : [58,60,62,61,56,52,48,45,43,46,50,55]
+      };
+    }
+    const found = this.compareSets.find((c: CompareSet) => c.key === this.activeCompareKey);
+    return found ?? this.compareSets[0];
+  }
+
+  /** 选择器用到的所有 key+label (含 temp_humid) */
+  private get allCompareKeys(): CompareSet[] {
+    const tempSet: CompareSet = {
+      key: 'temp_humid', label: '温度 · 湿度',
+      labelA: '温度 (°C)', labelB: '湿度 (%RH)',
+      colorA: AppColors.SENSOR_TEMP, colorB: AppColors.SENSOR_HUMID,
+      unitA: '°C', unitB: '%',
+      dataA: this.realTempData, dataB: this.realHumidData
+    };
+    const merged: CompareSet[] = [tempSet];
+    for (const item of this.compareSets) {
+      merged.push(item);
+    }
+    return merged;
   }
 
   private levelColor(level: string): string {
@@ -104,12 +137,26 @@ export struct HistoryPage {
   }
 
   /** 找最大值（用于柱状/线的高度归一化） */
-  private maxIn(...arrays: number[][]): number {
+  private maxIn(arrays: number[][]): number {
     let m = 0;
     for (const arr of arrays) {
-      for (const v of arr) { if (v > m) m = v; }
+      for (const v of arr) {
+        if (v > m) {
+          m = v;
+        }
+      }
     }
     return m;
+  }
+
+  private maxOf(values: number[]): number {
+    let max = 0;
+    for (const value of values) {
+      if (value > max) {
+        max = value;
+      }
+    }
+    return max;
   }
 
   @Builder
@@ -167,6 +214,13 @@ export struct HistoryPage {
       .width('100%')
       .alignItems(HorizontalAlign.Center)
     }
+  }
+
+  private get hourLabelsComputed(): string[] {
+    if (this.activeCompareKey === 'temp_humid' && this.realLabels.length > 0) {
+      return this.realLabels;
+    }
+    return this.hourLabels;
   }
 
   private get maxEnergyDay(): number {
@@ -266,7 +320,7 @@ export struct HistoryPage {
                 Text('峰值')
                   .fontSize(AppFont.SIZE_FOOTNOTE)
                   .fontColor(AppColors.TEXT_TERTIARY)
-                Text(`${Math.max(...this.weekEnergy).toFixed(1)} kWh`)
+                Text(`${this.maxOf(this.weekEnergy).toFixed(1)} kWh`)
                   .fontSize(AppFont.SIZE_FOOTNOTE)
                   .fontColor(AppColors.DANGER)
                   .fontWeight(FontWeight.Medium)
@@ -318,7 +372,7 @@ export struct HistoryPage {
               // 对比类型选择器
               Scroll() {
                 Row({ space: AppSpace.SM }) {
-                  ForEach(this.compareSets, (cs: CompareSet) => {
+                  ForEach(this.allCompareKeys, (cs: CompareSet) => {
                     Text(cs.label)
                       .fontSize(AppFont.SIZE_FOOTNOTE)
                       .fontColor(this.activeCompareKey === cs.key ? AppColors.TEXT_INVERSE : AppColors.TEXT_SECONDARY)
@@ -410,7 +464,7 @@ export struct HistoryPage {
                       .margin({ top: AppSpace.XS, bottom: AppSpace.XS })
 
                     Row({ space: 0 }) {
-                      ForEach(this.hourLabels, (label: string) => {
+                      ForEach(this.hourLabelsComputed, (label: string) => {
                         Text(label)
                           .fontSize(9)
                           .fontColor(AppColors.TEXT_TERTIARY)
@@ -439,7 +493,7 @@ export struct HistoryPage {
                       Text('峰值')
                         .fontSize(AppFont.SIZE_CAPTION)
                         .fontColor(AppColors.TEXT_TERTIARY)
-                      Text(`${Math.max(...this.activeCompare.dataA).toFixed(1)} ${this.activeCompare.unitA}`)
+                      Text(`${this.maxOf(this.activeCompare.dataA).toFixed(1)} ${this.activeCompare.unitA}`)
                         .fontSize(AppFont.SIZE_FOOTNOTE)
                         .fontColor(this.activeCompare.colorA)
                         .fontWeight(FontWeight.Medium)
@@ -462,7 +516,7 @@ export struct HistoryPage {
                       Text('峰值')
                         .fontSize(AppFont.SIZE_CAPTION)
                         .fontColor(AppColors.TEXT_TERTIARY)
-                      Text(`${Math.max(...this.activeCompare.dataB).toFixed(1)} ${this.activeCompare.unitB}`)
+                      Text(`${this.maxOf(this.activeCompare.dataB).toFixed(1)} ${this.activeCompare.unitB}`)
                         .fontSize(AppFont.SIZE_FOOTNOTE)
                         .fontColor(this.activeCompare.colorB)
                         .fontWeight(FontWeight.Medium)

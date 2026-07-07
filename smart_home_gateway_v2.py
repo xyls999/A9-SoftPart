@@ -84,6 +84,66 @@ def _save_reg():
 
 # ===== 门禁（二进制帧）=====
 HDR = bytes([0xAA, 0x55]); TAIL = bytes([0x55, 0xAA]); PKT_SZ = 32
+BEARPI_CMD_REPORT_STATUS = 0
+BEARPI_CMD_BRIGHTNESS = 1
+BEARPI_CMD_HUMAN_DETECT = 2
+BEARPI_CMD_RADAR_PARAM = 3
+BEARPI_RADAR_OP_QUERY = 0
+
+def _bearpi_pkt(cmd, room, val):
+    c = bytearray(24)
+    c[0] = cmd
+    c[1] = room
+    c[2] = val
+    crc = zlib.crc32(bytes(c)) & 0xFFFFFFFF
+    return HDR + crc.to_bytes(4, "little") + bytes(c) + TAIL
+
+def _bearpi_host():
+    dev = REGISTRY.get("dev_board") or {}
+    return dev.get("last_ip") or "192.168.1.81"
+
+def bearpi_brightness(room, value):
+    host = _bearpi_host()
+    pkt = _bearpi_pkt(BEARPI_CMD_BRIGHTNESS, room, value)
+    try:
+        with socket.create_connection((host, 8000), timeout=5) as s:
+            s.sendall(pkt)
+            resp = s.recv(PKT_SZ)
+        log(f"[BEARPI] brightness room={room} value={value} host={host} resp={resp.hex(' ')}")
+        return {"success": True, "host": host, "room": room, "value": value}
+    except Exception as e:
+        log(f"[BEARPI] brightness err: {e}")
+        return {"success": False, "host": host, "error": str(e)}
+
+def bearpi_human(room, value):
+    host = _bearpi_host()
+    pkt = _bearpi_pkt(BEARPI_CMD_HUMAN_DETECT, room, value)
+    try:
+        with socket.create_connection((host, 8000), timeout=5) as s:
+            s.sendall(pkt)
+            resp = s.recv(PKT_SZ)
+        log(f"[BEARPI] human room={room} value={value} host={host} resp={resp.hex(' ')}")
+        return {"success": True, "host": host, "room": room, "value": value}
+    except Exception as e:
+        log(f"[BEARPI] human err: {e}")
+        return {"success": False, "host": host, "error": str(e)}
+
+def bearpi_radar_query(param=0x0101):
+    host = _bearpi_host()
+    c = bytearray(24)
+    c[0] = BEARPI_CMD_RADAR_PARAM
+    c[1] = BEARPI_RADAR_OP_QUERY
+    c[2:4] = int(param).to_bytes(2, "little", signed=False)
+    pkt = HDR + (zlib.crc32(bytes(c)) & 0xFFFFFFFF).to_bytes(4, "little") + bytes(c) + TAIL
+    try:
+        with socket.create_connection((host, 8000), timeout=5) as s:
+            s.sendall(pkt)
+            resp = s.recv(PKT_SZ)
+        log(f"[BEARPI] radar query param=0x{int(param):04x} host={host} resp={resp.hex(' ')}")
+        return {"success": True, "host": host, "param": int(param)}
+    except Exception as e:
+        log(f"[BEARPI] radar err: {e}")
+        return {"success": False, "host": host, "error": str(e)}
 
 def _pkt(cmd, room, val):
     c = bytearray(24); c[0]=cmd; c[1]=room; c[2]=val
@@ -103,6 +163,15 @@ def control_door(action):
     except Exception as e:
         log(f"[DOOR] {action} err: {e}")
         return {"success": False, "error": str(e)}
+
+def control_light_device(dev, on):
+    room = 0 if dev["id"] in ("light_01", "fan_01", "ac_01") else 1
+    value = 80 if on else 0
+    res = bearpi_brightness(room, value)
+    if res.get("success"):
+        dev["isOn"] = on
+        dev["primaryValue"] = value
+    return res
 
 # ===== 温湿度监听 =====
 def temp_listener():
@@ -221,6 +290,20 @@ class H(BaseHTTPRequestHandler):
         p = self.path.split("?")[0]; body = self._b()
         try:
             if p == "/api/door/control": self._j(200, control_door(body.get("action", "query"))); return
+            if p == "/api/bearpi/command":
+                cmd = str(body.get("command", "")).strip()
+                if not cmd:
+                    self._j(400, {"success": False, "error": "missing command"}); return
+                if cmd.startswith("brightness:"):
+                    _, room, value = cmd.split(":")
+                    self._j(200, bearpi_brightness(int(room), int(value))); return
+                if cmd.startswith("human:"):
+                    _, room, value = cmd.split(":")
+                    self._j(200, bearpi_human(int(room), int(value))); return
+                if cmd.startswith("radar-query:"):
+                    _, param = cmd.split(":", 1)
+                    self._j(200, bearpi_radar_query(int(param, 0))); return
+                self._j(400, {"success": False, "error": "unsupported command"}); return
             m = re.match(r"^/api/devices/([\w_]+)/control$", p)
             if m:
                 did = m.group(1); dev = DSTATE.get(did)
@@ -229,6 +312,11 @@ class H(BaseHTTPRequestHandler):
                 if dev["type"] == "door":
                     r = control_door("open" if ps.get("value", 0) == 1 else "close"); dev["isOn"] = r.get("state") == "open"
                     self._j(200, {"success": r.get("success"), "device": dev}); return
+                if dev["type"] == "light" and a in ("set_brightness", "toggle"):
+                    r = control_light_device(dev, bool(ps.get("value", dev.get("isOn", False))) if a == "toggle" else ps.get("value", 0) > 0)
+                    if not r.get("success"):
+                        self._j(502, {"success": False, "device": dev, "error": r.get("error")}); return
+                    self._j(200, {"success": True, "device": dev, "result": r}); return
                 if a in ("set_speed", "set_temp", "set_brightness") and "value" in ps: dev["primaryValue"] = ps["value"]
                 save_cmd(did, a, ps); self._j(200, {"success": True, "device": dev}); return
             m = re.match(r"^/api/devices/([\w_]+)/toggle$", p)
@@ -238,6 +326,10 @@ class H(BaseHTTPRequestHandler):
                 on = bool(body.get("isOn", not dev["isOn"]))
                 if dev["type"] == "door":
                     r = control_door("open" if on else "close"); on = r.get("state") == "open"
+                elif dev["type"] == "light":
+                    r = control_light_device(dev, on)
+                    if not r.get("success"):
+                        self._j(502, {"success": False, "device": dev, "error": r.get("error")}); return
                 dev["isOn"] = on; self._j(200, {"success": True, "device": dev}); return
             if p == "/api/devices":
                 nd = {"id": body.get("id", f"d{int(time.time())}"), "name": body.get("name", "新设备"), "type": body.get("type", "light"), "status": "online", "room": body.get("room", "客厅"), "icon": body.get("icon", "lightbulb"), "primaryValue": body.get("primaryValue", 0), "isOn": False}

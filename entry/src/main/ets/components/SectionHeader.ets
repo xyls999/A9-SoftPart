@@ -15,13 +15,14 @@ export struct SectionHeader {
     Row() {
       Column({ space: 2 }) {
         Text(this.title)
-          .fontSize(AppFont.SIZE_BODY_LG)
+          .fontSize(AppFont.SIZE_TITLE)
           .fontColor(AppColors.TEXT_PRIMARY)
-          .fontWeight(FontWeight.Medium)
+          .fontWeight(FontWeight.Bold)
         if (this.subtitle) {
           Text(this.subtitle)
             .fontSize(AppFont.SIZE_FOOTNOTE)
             .fontColor(AppColors.TEXT_TERTIARY)
+            .lineHeight(20)
         }
       }
       .alignItems(HorizontalAlign.Start)

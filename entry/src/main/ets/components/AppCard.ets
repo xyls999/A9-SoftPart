@@ -1,10 +1,9 @@
 /**
- * 通用卡片组件 · 经典鸿蒙浅色风格
- * 动效: 入场上移淡入 + 点击微缩放
+ * 通用面板组件 · 设备控制台风格
+ * 细边框、低阴影、轻微按压反馈。
  */
 import { AppColors } from '../theme/Colors';
 import { AppSpace } from '../theme/Spacing';
-import { TapEffect } from '../theme/Effects';
 
 @Component
 export struct AppCard {
@@ -34,15 +33,12 @@ export struct AppCard {
     .padding(this.innerPadding)
     .borderRadius(this.cornerRadius)
     .backgroundColor(this.pressed ? AppColors.BG_CARD_TAP : this.bgColor)
-    .border({ width: 0.5, color: AppColors.HAIRLINE })
-    .shadow(this.pressed ? ShadowStyle.OUTER_DEFAULT_XS : ShadowStyle.OUTER_DEFAULT_SM)
-    .scale({
-      x: this.pressed ? TapEffect.PRESSED : TapEffect.NORMAL,
-      y: this.pressed ? TapEffect.PRESSED : TapEffect.NORMAL
+    .border({ width: 1, color: AppColors.DIVIDER })
+    .shadow(this.pressed ? { radius: 0, color: '#00000000', offsetX: 0, offsetY: 0 } : {
+      radius: 2, color: '#00000024', offsetX: 0, offsetY: 1
     })
     .opacity(this.appeared ? 1 : 0)
-    .translate({ y: this.appeared ? 0 : 14 })
-    .animation({ duration: 300, curve: Curve.EaseOut })
+    .animation({ duration: 140, curve: Curve.EaseOut })
     .onClick(() => { if (this.onClickAction) this.onClickAction(); })
     .onTouch((e: TouchEvent) => {
       if (!this.clickable) return;

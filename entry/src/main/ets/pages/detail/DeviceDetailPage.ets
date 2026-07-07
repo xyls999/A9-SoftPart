@@ -98,12 +98,15 @@ struct DeviceDetailPage {
               .fontSize(AppFont.SIZE_FOOTNOTE)
               .fontColor(AppColors.TEXT_TERTIARY)
 
-            Toggle({ type: ToggleType.Switch, isOn: this.device.isOn })
+              Toggle({ type: ToggleType.Switch, isOn: this.device.isOn })
               .selectedColor(AppColors.PRIMARY)
               .width(56).height(32)
               .onChange(async (on: boolean) => {
                 if (this.device) {
                   await DeviceApi.toggle(this.device.id, on);
+                  if (this.device.type === DeviceType.LIGHT) {
+                    await DeviceApi.sendBearPiCommand(`brightness:${this.device.id === 'light_01' ? 0 : 1}:${on ? this.device.primaryValue || 80 : 0}`);
+                  }
                   const d = this.device;
                   this.device = {
                     id: d.id, name: d.name, type: d.type, status: d.status, room: d.room,

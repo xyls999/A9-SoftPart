@@ -5,6 +5,7 @@
 import { Device, DeviceType, DeviceStatus, ControlParams } from './types';
 import { MockData } from '../mock/mockData';
 import { Http } from './http';
+import { normalizeDevice } from './adapter';
 
 interface DeviceControlResponse {
   success: boolean;
@@ -29,13 +30,23 @@ interface AddDeviceRequestBody {
   primaryValue: number;
 }
 
+interface ProtocolCommandResult {
+  success: boolean;
+  detail: string;
+}
+
+interface BearPiCommandBody {
+  command: string;
+}
+
 export class DeviceApi {
   /** 获取全部设备列表 */
   static async getDevices(): Promise<Device[]> {
     const remote = await Http.get('/api/devices');
     if (remote) {
       try {
-        return JSON.parse(remote) as Device[];
+        const data = JSON.parse(remote) as Record<string, Object>[];
+        return data.map((item: Record<string, Object>) => normalizeDevice(item));
       } catch (e) {
         // 解析失败降级
       }
@@ -115,6 +126,21 @@ export class DeviceApi {
     }
     MockData.devices.push(device);
     return true;
+  }
+
+  /** BearPi 亮度 / 人感 / 雷达命令 */
+  static async sendBearPiCommand(command: string): Promise<ProtocolCommandResult> {
+    const body: BearPiCommandBody = { command };
+    const respText = await Http.post('/api/bearpi/command', body);
+    if (respText) {
+      try {
+        const resp = JSON.parse(respText) as ProtocolCommandResult;
+        return resp;
+      } catch (e) {
+        // fallback
+      }
+    }
+    return { success: false, detail: 'BearPi command failed' };
   }
 
   /** 移除设备 */

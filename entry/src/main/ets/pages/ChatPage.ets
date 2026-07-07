@@ -1,5 +1,7 @@
 /**
- * ChatFlow 对话页 · 经典鸿蒙浅色
+ * ChatFlow 对话页 · 优化版
+ * 修复: isResponding 在 try/finally 中重置，防止卡死
+ * 增强: 消息出现动画、打字光标呼吸效果、优化排版
  */
 import { ChatBubble } from '../components/ChatBubble';
 import { ChatApi } from '../api/chatApi';
@@ -7,6 +9,10 @@ import { ChatMessage, ChatRole } from '../api/types';
 import { AppColors } from '../theme/Colors';
 import { AppSpace } from '../theme/Spacing';
 import { AppFont } from '../theme/Typography';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+
+const DOMAIN = 0x0001;
+const TAG = 'SmartHomeChatPage';
 
 @Component
 export struct ChatPage {
@@ -34,6 +40,8 @@ export struct ChatPage {
     const text = this.inputText.trim();
     if (!text || this.isResponding) return;
 
+    hilog.info(DOMAIN, TAG, `send: "${text}"`);
+
     const userMsg: ChatMessage = {
       id: `msg_${this.msgId++}`,
       role: ChatRole.USER,
@@ -56,27 +64,48 @@ export struct ChatPage {
     this.messages = this.messages.concat([placeholder]);
     this.scrollToBottom();
 
-    await ChatApi.sendStream(
-      this.messages.slice(0, -1),
-      (partial: string) => {
-        this.messages = this.messages.map((m: ChatMessage): ChatMessage =>
-          m.id === assistantId ? {
-            id: m.id, role: m.role, content: partial, timestamp: m.timestamp, isStreaming: true
-          } : m
-        );
-        this.scrollToBottom();
-      },
-      (finalMsg: ChatMessage) => {
-        this.messages = this.messages.map((m: ChatMessage): ChatMessage =>
-          m.id === assistantId ? {
-            id: assistantId, role: finalMsg.role, content: finalMsg.content,
-            timestamp: finalMsg.timestamp, isStreaming: false
-          } : m
-        );
-        this.isResponding = false;
-        this.scrollToBottom();
-      }
-    );
+    // 关键修复: try/finally 确保 isResponding 必定重置
+    try {
+      await ChatApi.sendStream(
+        this.messages.slice(0, -1),
+        (partial: string) => {
+          // 逐字更新: 整个数组重新赋值触发 @State
+          this.messages = this.messages.map((m: ChatMessage): ChatMessage =>
+            m.id === assistantId ? {
+              id: assistantId, role: ChatRole.ASSISTANT, content: partial,
+              timestamp: m.timestamp, isStreaming: true
+            } : m
+          );
+        },
+        (finalMsg: ChatMessage) => {
+          // 最终更新: 用全新 id 让 ForEach 识别为新元素
+          const newId = `msg_${this.msgId++}`;
+          hilog.info(DOMAIN, TAG, `onDone: newId=${newId}, content="${finalMsg.content.substring(0, 30)}"`);
+          this.messages = this.messages.map((m: ChatMessage): ChatMessage =>
+            m.id === assistantId ? {
+              id: newId, role: ChatRole.ASSISTANT, content: finalMsg.content,
+              timestamp: finalMsg.timestamp, isStreaming: false
+            } : m
+          );
+          this.scrollToBottom();
+          hilog.info(DOMAIN, TAG, `onDone fired, messages=${this.messages.length}`);
+        }
+      );
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, `send error: ${(e as Error).message}`);
+      // 错误降级: 替换 placeholder 为错误提示
+      this.messages = this.messages.map((m: ChatMessage): ChatMessage =>
+        m.id === assistantId ? {
+          id: assistantId, role: ChatRole.ASSISTANT,
+          content: '抱歉，处理消息时出了点问题，请重试。',
+          timestamp: Date.now(), isStreaming: false
+        } : m
+      );
+    } finally {
+      // 必定执行: 重置状态
+      this.isResponding = false;
+      hilog.info(DOMAIN, TAG, `send finished, isResponding reset to false`);
+    }
   }
 
   async startVoice(): Promise<void> {
@@ -89,21 +118,36 @@ export struct ChatPage {
 
   build() {
     Column() {
-      // 顶部标题栏（白底）
+      // 顶部标题栏
       Row({ space: AppSpace.SM }) {
-        SymbolGlyph($r('sys.symbol.mic_fill'))
-          .fontSize(22)
-          .fontColor([AppColors.PRIMARY])
+        Column() {
+          SymbolGlyph($r('sys.symbol.Celia'))
+            .fontSize(24)
+            .fontColor([AppColors.PRIMARY])
+        }
+        .width(40).height(40)
+        .borderRadius(20)
+        .backgroundColor(AppColors.PRIMARY_BG)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+
         Column({ space: 2 }) {
           Text('智能助手')
             .fontSize(AppFont.SIZE_TITLE)
             .fontColor(AppColors.TEXT_PRIMARY)
             .fontWeight(FontWeight.Bold)
-          Text(this.isResponding ? '正在回复...' : '在线 · 随时为你服务')
-            .fontSize(AppFont.SIZE_CAPTION)
-            .fontColor(this.isResponding ? AppColors.PRIMARY : AppColors.TEXT_TERTIARY)
+          Row({ space: 6 }) {
+            // 在线状态指示点
+            Circle({ width: 6, height: 6 })
+              .fill(this.isResponding ? AppColors.WARNING : AppColors.ONLINE)
+              .opacity(this.isResponding ? 1 : 0.8)
+            Text(this.isResponding ? '正在回复...' : '在线 · 随时为你服务')
+              .fontSize(AppFont.SIZE_CAPTION)
+              .fontColor(this.isResponding ? AppColors.WARNING : AppColors.TEXT_TERTIARY)
+          }
         }
         .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
       }
       .width('100%')
       .padding({ left: AppSpace.PAGE_PADDING, right: AppSpace.PAGE_PADDING, top: 44, bottom: AppSpace.MD })
@@ -127,8 +171,9 @@ export struct ChatPage {
       .edgeEffect(EdgeEffect.Spring)
       .align(Alignment.TopStart)
 
-      // 底部输入栏（白底）
+      // 底部输入栏
       Row({ space: AppSpace.SM }) {
+        // 语音按钮
         Column() {
           SymbolGlyph(this.isListening ? $r('sys.symbol.mic_badge_recordingtape') : $r('sys.symbol.mic_fill'))
             .fontSize(20)
@@ -141,6 +186,7 @@ export struct ChatPage {
         .alignItems(HorizontalAlign.Center)
         .onClick(() => this.startVoice())
 
+        // 输入框
         TextInput({ text: this.inputText, placeholder: this.isListening ? '正在聆听...' : '输入消息或点击语音' })
           .layoutWeight(1)
           .height(40)
@@ -154,6 +200,7 @@ export struct ChatPage {
           .onChange((v: string) => { this.inputText = v; })
           .onSubmit(() => this.send())
 
+        // 发送按钮
         Column() {
           SymbolGlyph($r('sys.symbol.paperplane_fill'))
             .fontSize(16)
@@ -161,9 +208,10 @@ export struct ChatPage {
         }
         .width(40).height(40)
         .borderRadius(20)
-        .backgroundColor(this.inputText.trim() ? AppColors.PRIMARY : AppColors.BG_INPUT)
+        .backgroundColor(this.inputText.trim() ? AppColors.PRIMARY : '#D5D7DB')
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
+        .opacity(this.inputText.trim() ? 1 : 0.5)
         .onClick(() => this.send())
       }
       .width('100%')

@@ -51,6 +51,9 @@ export struct DeviceCard {
   async toggle(): Promise<void> {
     this.localOn = !this.localOn;
     await DeviceApi.toggle(this.device.id, this.localOn);
+    if (this.device.type === DeviceType.LIGHT) {
+      await DeviceApi.sendBearPiCommand(`brightness:${this.device.id === 'light_01' ? 0 : 1}:${this.localOn ? this.localValue || 80 : 0}`);
+    }
     // 图标弹跳反馈
     this.iconBounce = 1.2;
     setTimeout(() => { this.iconBounce = 1; }, 150);
@@ -66,6 +69,9 @@ export struct DeviceCard {
       : this.device.type === DeviceType.AC ? 'set_temp' : 'set_brightness';
     const ctrlParams: ControlParams = { value: next };
     await DeviceApi.control(this.device.id, action, ctrlParams);
+    if (this.device.type === DeviceType.LIGHT) {
+      await DeviceApi.sendBearPiCommand(`brightness:${this.device.id === 'light_01' ? 0 : 1}:${next}`);
+    }
   }
 
   @Builder

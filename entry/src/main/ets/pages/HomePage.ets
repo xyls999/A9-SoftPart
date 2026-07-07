@@ -26,7 +26,9 @@ export struct HomePage {
   private gradTimer: number = -1;
 
   aboutToAppear(): void {
-    this.loadData();
+    setTimeout(() => {
+      this.loadData();
+    }, 0);
     // 顶部渐变缓慢流动（30s 一圈）
     this.gradTimer = setInterval(() => {
       this.gradAngle = (this.gradAngle + 2) % 360;
@@ -38,8 +40,12 @@ export struct HomePage {
   }
 
   async loadData(): Promise<void> {
-    this.devices = await DeviceApi.getDevices();
-    this.envSensors = (await SensorApi.getByGroup(SensorGroup.ENVIRONMENT)).slice(0, 4);
+    const devicePromise = DeviceApi.getDevices();
+    const sensorPromise = SensorApi.getByGroup(SensorGroup.ENVIRONMENT);
+    const devices = await devicePromise;
+    const sensors = await sensorPromise;
+    this.devices = devices;
+    this.envSensors = sensors.slice(0, 4);
     this.scenes = MockData.scenes;
   }
 

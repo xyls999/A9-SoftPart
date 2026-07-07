@@ -34,7 +34,17 @@ export class UserApi {
     const remote = await Http.get('/api/server/status');
     if (remote) {
       try {
-        return JSON.parse(remote) as ServerStatus;
+        const status = JSON.parse(remote) as ServerStatus;
+        return {
+          host: status.host || Http.getActiveBase().replace('http://', '').replace(':8080', ''),
+          port: status.port || 8080,
+          isOnline: status.isOnline,
+          protocol: status.protocol,
+          latency: status.latency,
+          cpuUsage: status.cpuUsage,
+          memUsage: status.memUsage,
+          storageUsage: status.storageUsage
+        };
       } catch (e) {
         // 降级
       }

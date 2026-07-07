@@ -24,9 +24,12 @@ export struct MonitorPage {
   }
 
   async loadData(): Promise<void> {
-    this.cameras = await MonitorApi.getCameras();
-    this.sensors = await SensorApi.getSensors();
-    this.alerts = await MonitorApi.getAlerts();
+    const camerasPromise = MonitorApi.getCameras();
+    const sensorsPromise = SensorApi.getSensors();
+    const alertsPromise = MonitorApi.getAlerts();
+    this.cameras = await camerasPromise;
+    this.sensors = await sensorsPromise;
+    this.alerts = await alertsPromise;
   }
 
   private sensorsByGroup(group: SensorGroup): Sensor[] {

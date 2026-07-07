@@ -5,6 +5,20 @@
 import { Sensor, SensorGroup, SensorReading } from './types';
 import { MockData } from '../mock/mockData';
 import { Http } from './http';
+import { normalizeSensor } from './adapter';
+
+/** 传感器历史数据点 */
+interface SensorHistoryPoint {
+  value: number;
+  time: string;
+}
+
+/** 温湿度历史响应 */
+interface TempHumidHistory {
+  temp: number[];
+  humid: number[];
+  labels: string[];
+}
 
 export class SensorApi {
   /** 获取全部传感器 */
@@ -12,7 +26,8 @@ export class SensorApi {
     const remote = await Http.get('/api/sensors');
     if (remote) {
       try {
-        return JSON.parse(remote) as Sensor[];
+        const data = JSON.parse(remote) as Record<string, Object>[];
+        return data.map((item: Record<string, Object>) => normalizeSensor(item));
       } catch (e) {
         // 降级
       }
@@ -32,10 +47,49 @@ export class SensorApi {
     return all.find(s => s.id === id);
   }
 
-  /** 获取历史趋势 */
+  /** 获取历史趋势 (真实数据) */
   static async getHistory(id: string, hours: number = 24): Promise<number[]> {
+    const remote = await Http.get('/api/sensors/history');
+    if (remote) {
+      try {
+        const data = JSON.parse(remote) as Record<string, SensorHistoryPoint[]>;
+        const key = id === 'temp_01' ? 'temp' : id === 'humid_01' ? 'humid' : '';
+        if (key && data[key]) {
+          return data[key].map((p: SensorHistoryPoint) => p.value);
+        }
+      } catch (e) {
+        // 降级
+      }
+    }
     const s = MockData.sensors.find(x => x.id === id);
     return s ? s.history : [];
+  }
+
+  /** 获取温湿度历史 (完整结构,含时间标签) */
+  static async getTempHumidHistory(): Promise<TempHumidHistory> {
+    const remote = await Http.get('/api/sensors/history');
+    if (remote) {
+      try {
+        const data = JSON.parse(remote) as Record<string, SensorHistoryPoint[]>;
+        if (data.temp && data.temp.length > 0) {
+          const result: TempHumidHistory = {
+            temp: data.temp.map((p: SensorHistoryPoint) => p.value),
+            humid: data.humid ? data.humid.map((p: SensorHistoryPoint) => p.value) : [],
+            labels: data.temp.map((p: SensorHistoryPoint) => p.time)
+          };
+          return result;
+        }
+      } catch (e) {
+        // 降级
+      }
+    }
+    // 降级: 返回 mock
+    const fallback: TempHumidHistory = {
+      temp: [22.5, 22.0, 21.8, 22.1, 23.0, 24.1, 25.2, 26.0, 26.5, 25.8, 24.3, 23.1],
+      humid: [58, 60, 62, 61, 56, 52, 48, 45, 43, 46, 50, 55],
+      labels: ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18', '20', '22']
+    };
+    return fallback;
   }
 
   /** 订阅实时数据（模拟推送） */

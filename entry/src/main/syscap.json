@@ -1,0 +1,22 @@
+{
+  "devices": {
+    "custom": [
+      {
+        "default": [
+          "SystemCapability.Base",
+          "SystemCapability.ArkUI.ArkUI.Full",
+          "SystemCapability.ArkUI.ArkUI.Napi",
+          "SystemCapability.Ability.AbilityBase",
+          "SystemCapability.Ability.AbilityRuntime.Core",
+          "SystemCapability.BundleManager.BundleFramework",
+          "SystemCapability.Global.ResourceManager",
+          "SystemCapability.Graphic.Graphic2D.NativeDrawing",
+          "SystemCapability.Graphic.Graphic2D.NativeWindow",
+          "SystemCapability.WindowManager.WindowManager.Core",
+          "SystemCapability.Communication.NetStack",
+          "SystemCapability.Communication.NetManager.Core"
+        ]
+      }
+    ]
+  }
+}
