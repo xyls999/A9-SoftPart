@@ -27,7 +27,7 @@ export struct CameraCard {
             .backgroundColor(this.camera.previewColor)
             .linearGradient({
               angle: 135,
-              colors: [[`${this.camera.previewColor}FF`, 0], ['#00000080', 1]]
+              colors: [[`${this.camera.previewColor}FF`, 0], ['#801E5AA8', 1]]
             })
 
           Text(this.camera.name)
@@ -47,7 +47,7 @@ export struct CameraCard {
               }
               .padding({ left: 6, right: 6, top: 2, bottom: 2 })
               .borderRadius(4)
-              .backgroundColor('#80000000')
+              .backgroundColor('#801E5AA8')
             }
           }
           .position({ x: '62%', y: AppSpace.SM })

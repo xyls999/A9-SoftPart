@@ -56,7 +56,7 @@ export struct ServerManagerPanel {
             .fontColor(this.server.isOnline ? AppColors.SUCCESS : AppColors.DANGER)
             .padding({ left: 8, right: 8, top: 3, bottom: 3 })
             .borderRadius(AppSpace.RADIUS_PILL)
-            .backgroundColor(this.server.isOnline ? '#E6F5EC' : '#FCE8E5')
+            .backgroundColor(this.server.isOnline ? '#EFF6FF' : '#EAF2FF')
         }
         .width('100%')
 

@@ -98,7 +98,7 @@ export function normalizeDevice(raw: AnyRecord): Device {
     id: textOf(raw.id, `device_${Date.now()}`),
     name: visibleTextOf(raw.name, '智能设备'),
     type,
-    status: textOf(raw.status, DeviceStatus.ONLINE) as DeviceStatus,
+    status: textOf(raw.status, DeviceStatus.OFFLINE) as DeviceStatus,
     room: visibleTextOf(raw.room, '全屋'),
     icon: iconFromName(iconName),
     primaryValue: numberOf(raw.primaryValue, 0),
@@ -112,6 +112,7 @@ export function normalizeSensor(raw: AnyRecord): Sensor {
   const current = raw.current as AnyRecord | undefined;
   const type = textOf(raw.type, SensorType.TEMPERATURE) as SensorType;
   const historyRaw = raw.history as Array<number> | undefined;
+  const isOffline = current === undefined || current === null || textOf(raw.status, '') === DeviceStatus.OFFLINE || (typeof raw.online === 'boolean' && raw.online === false);
   return {
     id: textOf(raw.id, `sensor_${Date.now()}`),
     name: visibleTextOf(raw.name, '传感器'),
@@ -120,8 +121,8 @@ export function normalizeSensor(raw: AnyRecord): Sensor {
     room: visibleTextOf(raw.room, '全屋'),
     icon: iconFromName(textOf(raw.icon, type)),
     current: {
-      value: current ? numberOf(current.value, 0) : 0,
-      unit: current ? textOf(current.unit, '') : '',
+      value: current ? numberOf(current.value, numberOf(raw.value, 0)) : numberOf(raw.value, 0),
+      unit: isOffline ? '离线' : current ? textOf(current.unit, textOf(raw.unit, '')) : textOf(raw.unit, ''),
       timestamp: current ? numberOf(current.timestamp, Date.now()) : Date.now()
     },
     history: historyRaw ?? [],
@@ -137,7 +138,7 @@ export function normalizeCamera(raw: AnyRecord): Camera {
     id: textOf(raw.id, `camera_${Date.now()}`),
     name: visibleTextOf(raw.name, '摄像头'),
     room: visibleTextOf(raw.room, '全屋'),
-    status: textOf(raw.status, DeviceStatus.ONLINE) as DeviceStatus,
+    status: textOf(raw.status, DeviceStatus.OFFLINE) as DeviceStatus,
     isRecording: boolOf(raw.isRecording, false),
     resolution: textOf(raw.resolution, '1080P'),
     previewColor: textOf(raw.previewColor, '#1D7F68')

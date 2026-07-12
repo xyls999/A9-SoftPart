@@ -87,6 +87,7 @@ export struct ChatPage {
               timestamp: finalMsg.timestamp, isStreaming: false
             } : m
           );
+          ChatApi.speak(finalMsg.content);
           this.scrollToBottom();
           hilog.info(DOMAIN, TAG, `onDone fired, messages=${this.messages.length}`);
         }
@@ -114,6 +115,7 @@ export struct ChatPage {
     const text = await ChatApi.voiceToText('');
     this.isListening = false;
     this.inputText = text;
+    this.send();
   }
 
   build() {
@@ -132,18 +134,19 @@ export struct ChatPage {
         .alignItems(HorizontalAlign.Center)
 
         Column({ space: 2 }) {
-          Text('智能助手')
+          Text('智泽家居')
             .fontSize(AppFont.SIZE_TITLE)
             .fontColor(AppColors.TEXT_PRIMARY)
             .fontWeight(FontWeight.Bold)
-          Row({ space: 6 }) {
-            // 在线状态指示点
-            Circle({ width: 6, height: 6 })
-              .fill(this.isResponding ? AppColors.WARNING : AppColors.ONLINE)
-              .opacity(this.isResponding ? 1 : 0.8)
-            Text(this.isResponding ? '正在回复...' : '在线 · 随时为你服务')
-              .fontSize(AppFont.SIZE_CAPTION)
-              .fontColor(this.isResponding ? AppColors.WARNING : AppColors.TEXT_TERTIARY)
+          if (this.isResponding) {
+            Row({ space: 6 }) {
+              Circle({ width: 6, height: 6 })
+                .fill(AppColors.PRIMARY)
+                .opacity(0.9)
+              Text('正在回复...')
+                .fontSize(AppFont.SIZE_CAPTION)
+                .fontColor(AppColors.PRIMARY)
+            }
           }
         }
         .alignItems(HorizontalAlign.Start)
@@ -181,7 +184,7 @@ export struct ChatPage {
         }
         .width(40).height(40)
         .borderRadius(20)
-        .backgroundColor(this.isListening ? '#FCE8E5' : AppColors.BG_INPUT)
+        .backgroundColor(this.isListening ? '#EAF2FF' : AppColors.BG_INPUT)
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
         .onClick(() => this.startVoice())

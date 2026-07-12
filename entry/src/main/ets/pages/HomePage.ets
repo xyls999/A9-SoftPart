@@ -69,7 +69,7 @@ export struct HomePage {
             .height(120)
             .linearGradient({
               angle: this.gradAngle,
-              colors: [['#0A007DFF', 0.0], ['#0AF5A623', 0.5], ['#0A9B6DFF', 1.0]]
+              colors: [['#0A007DFF', 0.0], ['#143B82F6', 0.5], ['#0A60A5FA', 1.0]]
             })
             .animation({ duration: 500, curve: Curve.Linear })
 

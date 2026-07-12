@@ -13,7 +13,7 @@ export struct AppIcon {
   /** 图标尺寸（vp） */
   @Prop iconSize: number = 22;
   /** 图标颜色（hex 字符串） */
-  @Prop iconColor: string = '#181818';
+  @Prop iconColor: string = '#102A4C';
 
   build() {
     SymbolGlyph(this.iconRes)

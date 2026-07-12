@@ -161,9 +161,9 @@ export class MockData {
   // ============ 摄像头 ============
   static readonly cameras: Camera[] = [
     { id: 'cam_01', name: '客厅摄像头', room: '客厅', status: DeviceStatus.ONLINE, isRecording: true, resolution: '2K', previewColor: '#1A3A5C' },
-    { id: 'cam_02', name: '入户门铃', room: '玄关', status: DeviceStatus.ONLINE, isRecording: true, resolution: '1080P', previewColor: '#3A1A5C' },
-    { id: 'cam_03', name: '车库监控', room: '车库', status: DeviceStatus.ONLINE, isRecording: false, resolution: '1080P', previewColor: '#1A5C3A' },
-    { id: 'cam_04', name: '后院摄像头', room: '后院', status: DeviceStatus.OFFLINE, isRecording: false, resolution: '2K', previewColor: '#5C3A1A' }
+    { id: 'cam_02', name: '入户门铃', room: '玄关', status: DeviceStatus.ONLINE, isRecording: true, resolution: '1080P', previewColor: '#1E5AA8' },
+    { id: 'cam_03', name: '车库监控', room: '车库', status: DeviceStatus.ONLINE, isRecording: false, resolution: '1080P', previewColor: '#2563EB' },
+    { id: 'cam_04', name: '后院摄像头', room: '后院', status: DeviceStatus.OFFLINE, isRecording: false, resolution: '2K', previewColor: '#60A5FA' }
   ];
 
   // ============ 警报消息 ============
@@ -186,7 +186,7 @@ export class MockData {
       ]
     },
     {
-      id: 's2', name: '离家', icon: $r('sys.symbol.figure_walk'), color: '#FF9F0A', isActive: false,
+      id: 's2', name: '离家', icon: $r('sys.symbol.figure_walk'), color: '#3B82F6', isActive: false,
       actions: [
         { deviceId: 'fan_01', isOn: false },
         { deviceId: 'fan_02', isOn: false },
@@ -207,7 +207,7 @@ export class MockData {
       ]
     },
     {
-      id: 's4', name: '观影', icon: $r('sys.symbol.film'), color: '#BF5AF2', isActive: false,
+      id: 's4', name: '观影', icon: $r('sys.symbol.film'), color: '#60A5FA', isActive: false,
       actions: [
         { deviceId: 'light_01', isOn: true, primaryValue: 20 },
         { deviceId: 'light_02', isOn: false },
@@ -215,7 +215,7 @@ export class MockData {
       ]
     },
     {
-      id: 's5', name: '用餐', icon: $r('sys.symbol.fork_knife'), color: '#30D158', isActive: false,
+      id: 's5', name: '用餐', icon: $r('sys.symbol.fork_knife'), color: '#0EA5E9', isActive: false,
       actions: [
         { deviceId: 'light_01', isOn: true, primaryValue: 60 },
         { deviceId: 'fan_01', isOn: true, primaryValue: 1 }

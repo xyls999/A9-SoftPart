@@ -35,7 +35,7 @@ export struct AppCard {
     .backgroundColor(this.pressed ? AppColors.BG_CARD_TAP : this.bgColor)
     .border({ width: 1, color: AppColors.DIVIDER })
     .shadow(this.pressed ? { radius: 0, color: '#00000000', offsetX: 0, offsetY: 0 } : {
-      radius: 2, color: '#00000024', offsetX: 0, offsetY: 1
+      radius: 2, color: '#143B82F6', offsetX: 0, offsetY: 1
     })
     .opacity(this.appeared ? 1 : 0)
     .animation({ duration: 140, curve: Curve.EaseOut })

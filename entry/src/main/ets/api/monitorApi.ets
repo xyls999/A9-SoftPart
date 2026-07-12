@@ -1,6 +1,6 @@
 /**
  * 监控 API · 对接设备端网关
- * 策略: HTTP 优先，失败降级到 MockData
+ * 策略: v5 真实数据优先；请求失败不再返回 mock 状态。
  */
 import { Camera, AlertMessage } from './types';
 import { MockData } from '../mock/mockData';
@@ -16,10 +16,9 @@ export class MonitorApi {
         const data = JSON.parse(remote) as Record<string, Object>[];
         return data.map((item: Record<string, Object>) => normalizeCamera(item));
       } catch (e) {
-        // 降级
       }
     }
-    return MockData.cameras;
+    return [];
   }
 
   /** 获取视频流地址（占位） */
@@ -42,10 +41,9 @@ export class MonitorApi {
         const data = JSON.parse(remote) as Record<string, Object>[];
         return data.map((item: Record<string, Object>) => normalizeAlert(item));
       } catch (e) {
-        // 降级
       }
     }
-    return MockData.alerts;
+    return [];
   }
 
   /** 标记已读 */
