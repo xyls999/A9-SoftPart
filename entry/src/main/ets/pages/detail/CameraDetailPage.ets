@@ -63,7 +63,7 @@ struct CameraDetailPage {
                 .backgroundColor(this.camera.previewColor)
                 .linearGradient({
                   angle: 135,
-                  colors: [[`${this.camera.previewColor}CC`, 0], ['#00000099', 1]]
+                  colors: [[`${this.camera.previewColor}CC`, 0], ['#1E5AA899', 1]]
                 })
 
               if (this.camera.status === DeviceStatus.OFFLINE) {
@@ -98,7 +98,7 @@ struct CameraDetailPage {
                   }
                   .padding({ left: 6, right: 6, top: 3, bottom: 3 })
                   .borderRadius(4)
-                  .backgroundColor('#80000000')
+                  .backgroundColor('#801E5AA8')
                 }
                 Blank()
                 Text(this.camera.resolution)
@@ -106,7 +106,7 @@ struct CameraDetailPage {
                   .fontColor(AppColors.TEXT_INVERSE)
                   .padding({ left: 6, right: 6, top: 3, bottom: 3 })
                   .borderRadius(4)
-                  .backgroundColor('#80000000')
+                  .backgroundColor('#801E5AA8')
               }
               .width('100%')
               .padding(AppSpace.SM)

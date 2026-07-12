@@ -1,8 +1,8 @@
 /**
  * HTTP 客户端 · 对接设备端网关
  * App 与网关同设备运行时走 127.0.0.1 loopback。
- * 如果网关跑在局域网设备上，会自动尝试已知内网地址。
- * 失败时返回 null，调用方自行 fallback 到 MockData
+ * 如果网关跑在局域网设备上，会自动尝试 A9 v5 网关地址。
+ * 失败时返回 null，状态调用方不再自行生成 mock 数据。
  */
 import { http } from '@kit.NetworkKit';
 import { BusinessError } from '@kit.BasicServicesKit';
@@ -15,8 +15,7 @@ export class Http {
   static readonly BASE: string = 'http://127.0.0.1:8080';
   private static readonly BASE_CANDIDATES: string[] = [
     'http://127.0.0.1:8080',
-    'http://192.168.1.81:8080',
-    'http://192.168.1.62:8080'
+    'http://192.168.1.81:8080'
   ];
   private static readonly TIMEOUT: number = 30000;
   private static activeBase: string = Http.BASE;

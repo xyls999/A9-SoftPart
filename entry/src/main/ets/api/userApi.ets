@@ -1,6 +1,6 @@
 /**
  * 用户与服务端管理 API · 对接设备端网关
- * 策略: HTTP 优先，失败降级到 MockData
+ * 策略: HTTP 优先；资料设置保留本地编辑态，不用于设备/传感器真实状态展示。
  */
 import { UserProfile, UserProfileUpdate, ServerStatus } from './types';
 import { MockData } from '../mock/mockData';

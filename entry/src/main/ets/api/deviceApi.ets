@@ -1,6 +1,6 @@
 /**
  * 设备控制 API · 对接设备端网关
- * 策略: HTTP 优先，失败降级到 MockData
+ * 策略: v5 真实硬件优先。离线设备由后端标记 offline，状态为关且无模拟值。
  */
 import { Device, DeviceType, DeviceStatus, ControlParams } from './types';
 import { MockData } from '../mock/mockData';
@@ -48,10 +48,9 @@ export class DeviceApi {
         const data = JSON.parse(remote) as Record<string, Object>[];
         return data.map((item: Record<string, Object>) => normalizeDevice(item));
       } catch (e) {
-        // 解析失败降级
       }
     }
-    return MockData.devices;
+    return [];
   }
 
   /** 获取单个设备详情 */

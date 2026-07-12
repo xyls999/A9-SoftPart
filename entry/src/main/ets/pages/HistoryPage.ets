@@ -4,14 +4,15 @@
  */
 import { AppCard } from '../components/AppCard';
 import { SectionHeader } from '../components/SectionHeader';
-import { MockData } from '../mock/mockData';
-import { AlertMessage, Device } from '../api/types';
+import { AlertMessage, Device, Sensor, SensorType } from '../api/types';
 import { DeviceApi } from '../api/deviceApi';
 import { SensorApi } from '../api/sensorApi';
 import { MonitorApi } from '../api/monitorApi';
+import { BackendStatItem, SystemStatsApi } from '../api/systemStatsApi';
 import { AppColors } from '../theme/Colors';
 import { AppSpace } from '../theme/Spacing';
 import { AppFont } from '../theme/Typography';
+import { StatRing } from '../components/StatRing';
 
 /** 二维对比数据集 */
 interface CompareSet {
@@ -34,16 +35,20 @@ export struct HistoryPage {
   @State deviceCount: number = 0;
   @State onlineCount: number = 0;
   @State alertCount: number = 0;
-  @State todayEnergy: number = 14.3;
+  @State sensorCount: number = 0;
+  @State todayEnergyText: string = '暂无';
   @State chartExpanded: boolean = false;
   @State activeCompareKey: string = 'temp_humid';
-  @State realTempData: number[] = [22.5,22.0,21.8,22.1,23.0,24.1,25.2,26.0,26.5,25.8,24.3,23.1];
-  @State realHumidData: number[] = [58,60,62,61,56,52,48,45,43,46,50,55];
-  @State realLabels: string[] = ['0','2','4','6','8','10','12','14','16','18','20','22'];
-  /** 近 7 天能耗模拟数据 */
-  private weekEnergy: number[] = [12.1, 13.8, 11.5, 15.2, 14.3, 16.0, 11.9];
+  @State realTempData: number[] = [];
+  @State realHumidData: number[] = [];
+  @State realLabels: string[] = [];
+  @State backendStatsAvailable: boolean = false;
+  @State backendDeviceRate: number = 0;
+  @State backendStatsItems: BackendStatItem[] = [];
+  /** 近 7 天真实能耗数据 */
+  private weekEnergy: number[] = [];
   /** 24 小时时间标签 */
-  private hourLabels: string[] = ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18', '20', '22'];
+  private hourLabels: string[] = [];
 
   /** 二维对比数据集 (temp_humid 由 getter 动态返回,不在此处) */
   private compareSets: CompareSet[] = [
@@ -53,17 +58,17 @@ export struct HistoryPage {
       labelA: 'PM2.5 (μg/m³)', labelB: 'CO₂ (ppm)',
       colorA: AppColors.SENSOR_AIR, colorB: AppColors.PURPLE,
       unitA: 'μg', unitB: 'ppm',
-      dataA: [12,15,18,22,20,17,14,13,16,19,21,18],
-      dataB: [580,600,620,650,640,610,590,570,560,575,595,612]
+      dataA: [],
+      dataB: []
     },
     {
       key: 'power_day',
       label: '功率 · 电量',
       labelA: '功率 (kW)', labelB: '累计 (kWh)',
-      colorA: AppColors.SENSOR_POWER, colorB: AppColors.ORANGE,
+      colorA: AppColors.SENSOR_POWER, colorB: AppColors.PRIMARY,
       unitA: 'kW', unitB: 'kWh',
-      dataA: [0.8,0.6,0.5,0.7,1.2,2.1,1.8,1.5,1.3,1.8,2.5,1.9],
-      dataB: [0.8,1.4,1.9,2.6,3.8,5.9,7.7,9.2,10.5,12.3,14.8,16.7]
+      dataA: [],
+      dataB: []
     }
   ];
 
@@ -74,12 +79,20 @@ export struct HistoryPage {
   async loadData(): Promise<void> {
     // 真实告警
     const remoteAlerts = await MonitorApi.getAlerts();
-    this.alerts = remoteAlerts.length > 0 ? remoteAlerts : MockData.alerts;
+    this.alerts = remoteAlerts;
     // 真实设备
     this.devices = await DeviceApi.getDevices();
     this.deviceCount = this.devices.length;
     this.onlineCount = this.devices.filter((d: Device) => d.status !== 'offline').length;
     this.alertCount = this.alerts.filter((a: AlertMessage) => !a.isRead).length;
+    const sensors = await SensorApi.getSensors();
+    this.sensorCount = sensors.length;
+    const energy = sensors.find((s: Sensor) => s.id === 'power_02' || s.type === SensorType.POWER && s.name.includes('今日'));
+    if (energy && energy.current.unit !== '离线') {
+      this.todayEnergyText = energy.current.value.toFixed(1);
+    } else {
+      this.todayEnergyText = '暂无';
+    }
     // 真实温湿度历史
     const history = await SensorApi.getTempHumidHistory();
     if (history.temp.length > 0) {
@@ -87,6 +100,10 @@ export struct HistoryPage {
       this.realHumidData = history.humid;
       this.realLabels = history.labels;
     }
+    const featureStats = await SystemStatsApi.getFeatureStats();
+    this.backendStatsAvailable = featureStats.available;
+    this.backendDeviceRate = featureStats.deviceOnlineRate;
+    this.backendStatsItems = featureStats.items;
   }
 
   private get activeCompare(): CompareSet {
@@ -96,8 +113,8 @@ export struct HistoryPage {
         labelA: '温度 (°C)', labelB: '湿度 (%RH)',
         colorA: AppColors.SENSOR_TEMP, colorB: AppColors.SENSOR_HUMID,
         unitA: '°C', unitB: '%',
-        dataA: this.realTempData.length > 0 ? this.realTempData : [22.5,22.0,21.8,22.1,23.0,24.1,25.2,26.0,26.5,25.8,24.3,23.1],
-        dataB: this.realHumidData.length > 0 ? this.realHumidData : [58,60,62,61,56,52,48,45,43,46,50,55]
+        dataA: this.realTempData,
+        dataB: this.realHumidData
       };
     }
     const found = this.compareSets.find((c: CompareSet) => c.key === this.activeCompareKey);
@@ -159,6 +176,21 @@ export struct HistoryPage {
     return max;
   }
 
+  private avgText(values: number[], unit: string): string {
+    if (!values || values.length === 0) return `离线 ${unit}`;
+    const avg = values.reduce((a: number, b: number) => a + b, 0) / values.length;
+    return `${avg.toFixed(1)} ${unit}`;
+  }
+
+  private maxText(values: number[], unit: string): string {
+    if (!values || values.length === 0) return `离线 ${unit}`;
+    return `${this.maxOf(values).toFixed(1)} ${unit}`;
+  }
+
+  private backendChartItems(): BackendStatItem[] {
+    return this.backendStatsItems.length > 1 ? this.backendStatsItems.slice(1) : [];
+  }
+
   @Builder
   statItem(value: string, label: string, color: string, icon: Resource) {
     Column({ space: AppSpace.XS }) {
@@ -193,7 +225,7 @@ export struct HistoryPage {
   }
 
   @Builder
-  funcEntry(icon: Resource, label: string, color: string) {
+  funcEntry(icon: Resource, label: string, value: string, color: string) {
     AppCard({ innerPadding: AppSpace.BASE, cornerRadius: AppSpace.RADIUS_CARD }) {
       Column({ space: AppSpace.MD }) {
         Column() {
@@ -206,13 +238,101 @@ export struct HistoryPage {
         .backgroundColor(color + '16')
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
-        Text(label)
-          .fontSize(AppFont.SIZE_BODY)
+        Text(value)
+          .fontSize(AppFont.SIZE_TITLE_LG)
           .fontColor(AppColors.TEXT_PRIMARY)
+          .fontWeight(FontWeight.Bold)
+        Text(label)
+          .fontSize(AppFont.SIZE_CAPTION)
+          .fontColor(AppColors.TEXT_TERTIARY)
           .fontWeight(FontWeight.Medium)
       }
       .width('100%')
       .alignItems(HorizontalAlign.Center)
+    }
+  }
+
+  @Builder
+  backendMetricRow(stat: BackendStatItem) {
+    Column({ space: AppSpace.XS }) {
+      Row({ space: AppSpace.SM }) {
+        Column({ space: 2 }) {
+          Text(stat.label)
+            .fontSize(AppFont.SIZE_CAPTION)
+            .fontColor(AppColors.TEXT_SECONDARY)
+          Text(stat.detail)
+            .fontSize(9)
+            .fontColor(AppColors.TEXT_TERTIARY)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+
+        Text(stat.value)
+          .fontSize(AppFont.SIZE_CAPTION)
+          .fontColor(stat.online ? AppColors.PRIMARY : AppColors.TEXT_TERTIARY)
+          .fontWeight(FontWeight.Medium)
+          .maxLines(1)
+          .textAlign(TextAlign.End)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      if (stat.progress >= 0) {
+        Progress({ value: stat.progress, total: 100, type: ProgressType.Linear })
+          .width('100%')
+          .color(stat.online ? AppColors.PRIMARY : '#A9C7E8')
+          .backgroundColor('#EAF4FF')
+          .style({ strokeWidth: 5 })
+      }
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 48 })
+    .padding({ left: AppSpace.SM, right: AppSpace.SM, top: AppSpace.XS, bottom: AppSpace.XS })
+    .borderRadius(AppSpace.RADIUS_BASE)
+    .backgroundColor('#F5FAFF')
+  }
+
+  @Builder
+  backendStatsChart() {
+    AppCard({ innerPadding: AppSpace.BASE, cornerRadius: AppSpace.RADIUS_CARD }) {
+      Column({ space: AppSpace.SM }) {
+        if (this.backendStatsAvailable) {
+          Row({ space: AppSpace.BASE }) {
+            StatRing({ value: this.backendDeviceRate, max: 100, unit: '%', ringColor: AppColors.PRIMARY, ringSize: 86 })
+            Column({ space: AppSpace.XS }) {
+              Text('设备在线率')
+                .fontSize(AppFont.SIZE_BODY)
+                .fontColor(AppColors.TEXT_PRIMARY)
+                .fontWeight(FontWeight.Bold)
+              Text(this.backendStatsItems.length > 0 ? this.backendStatsItems[0].detail : '暂无')
+                .fontSize(AppFont.SIZE_FOOTNOTE)
+                .fontColor(AppColors.TEXT_TERTIARY)
+              Text('12 类实时状态')
+                .fontSize(AppFont.SIZE_CAPTION)
+                .fontColor(AppColors.PRIMARY)
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+          }
+          .width('100%')
+          .padding({ left: AppSpace.SM, right: AppSpace.SM })
+          .alignItems(VerticalAlign.Center)
+
+          ForEach(this.backendChartItems(), (stat: BackendStatItem) => {
+            this.backendMetricRow(stat)
+          }, (stat: BackendStatItem) => stat.key)
+        } else {
+          Text('后端未返回统计信息')
+            .fontSize(AppFont.SIZE_FOOTNOTE)
+            .fontColor(AppColors.TEXT_TERTIARY)
+            .width('100%')
+            .textAlign(TextAlign.Center)
+            .padding({ top: AppSpace.BASE, bottom: AppSpace.BASE })
+        }
+      }
+      .width('100%')
     }
   }
 
@@ -272,7 +392,7 @@ export struct HistoryPage {
               this.statDivider()
               this.statItem(`${this.alertCount}`, '未读告警', AppColors.DANGER, $r('sys.symbol.flame_fill'))
               this.statDivider()
-              this.statItem(`${this.todayEnergy.toFixed(1)}`, '今日能耗', AppColors.SENSOR_POWER, $r('sys.symbol.bolt_fill'))
+              this.statItem(this.todayEnergyText, '今日能耗', AppColors.SENSOR_POWER, $r('sys.symbol.bolt_fill'))
             }
             .width('100%')
           }
@@ -285,33 +405,42 @@ export struct HistoryPage {
           SectionHeader({ title: '能耗趋势', subtitle: '近 7 天用电量 (kWh)' })
           AppCard({ innerPadding: AppSpace.BASE }) {
             Column({ space: AppSpace.MD }) {
-              Row({ space: AppSpace.SM }) {
-                ForEach(['一', '二', '三', '四', '五', '六', '日'], (day: string, idx: number) => {
-                  Column({ space: AppSpace.XS }) {
-                    Text(`${this.weekEnergy[idx]}`)
-                      .fontSize(AppFont.SIZE_CAPTION)
-                      .fontColor(idx === this.maxEnergyDay ? AppColors.DANGER : AppColors.TEXT_TERTIARY)
-                      .fontWeight(idx === this.maxEnergyDay ? FontWeight.Medium : FontWeight.Regular)
-                    Column()
-                      .width('100%')
-                      .height(this.weekEnergy[idx] * 5.5)
-                      .borderRadius(4)
-                      .backgroundColor(idx === this.maxEnergyDay ? AppColors.DANGER : AppColors.PRIMARY_BG)
-                  }
-                  .layoutWeight(1)
-                  .alignItems(HorizontalAlign.Center)
-                  .justifyContent(FlexAlign.End)
-                }, (day: string) => day)
+              if (this.weekEnergy.length > 0) {
+                Row({ space: AppSpace.SM }) {
+                  ForEach(this.weekEnergy, (value: number, idx: number) => {
+                    Column({ space: AppSpace.XS }) {
+                      Text(`${value}`)
+                        .fontSize(AppFont.SIZE_CAPTION)
+                        .fontColor(idx === this.maxEnergyDay ? AppColors.DANGER : AppColors.TEXT_TERTIARY)
+                        .fontWeight(idx === this.maxEnergyDay ? FontWeight.Medium : FontWeight.Regular)
+                      Column()
+                        .width('100%')
+                        .height(value * 5.5)
+                        .borderRadius(4)
+                        .backgroundColor(idx === this.maxEnergyDay ? AppColors.DANGER : AppColors.PRIMARY_BG)
+                    }
+                    .layoutWeight(1)
+                    .alignItems(HorizontalAlign.Center)
+                    .justifyContent(FlexAlign.End)
+                  }, (_: number, idx: number) => `${idx}`)
+                }
+                .width('100%')
+                .height(120)
+                .alignItems(VerticalAlign.Bottom)
+              } else {
+                Text('暂无真实能耗数据')
+                  .fontSize(AppFont.SIZE_FOOTNOTE)
+                  .fontColor(AppColors.TEXT_TERTIARY)
+                  .width('100%')
+                  .height(120)
+                  .textAlign(TextAlign.Center)
               }
-              .width('100%')
-              .height(120)
-              .alignItems(VerticalAlign.Bottom)
 
               Row() {
                 Text('周均')
                   .fontSize(AppFont.SIZE_FOOTNOTE)
                   .fontColor(AppColors.TEXT_TERTIARY)
-                Text(`${(this.weekEnergy.reduce((a: number, b: number) => a + b, 0) / 7).toFixed(1)} kWh`)
+                Text(this.avgText(this.weekEnergy, 'kWh'))
                   .fontSize(AppFont.SIZE_FOOTNOTE)
                   .fontColor(AppColors.TEXT_PRIMARY)
                   .fontWeight(FontWeight.Medium)
@@ -320,7 +449,7 @@ export struct HistoryPage {
                 Text('峰值')
                   .fontSize(AppFont.SIZE_FOOTNOTE)
                   .fontColor(AppColors.TEXT_TERTIARY)
-                Text(`${this.maxOf(this.weekEnergy).toFixed(1)} kWh`)
+                Text(this.maxText(this.weekEnergy, 'kWh'))
                   .fontSize(AppFont.SIZE_FOOTNOTE)
                   .fontColor(AppColors.DANGER)
                   .fontWeight(FontWeight.Medium)
@@ -482,7 +611,7 @@ export struct HistoryPage {
                       Text('均值')
                         .fontSize(AppFont.SIZE_CAPTION)
                         .fontColor(AppColors.TEXT_TERTIARY)
-                      Text(`${(this.activeCompare.dataA.reduce((a: number, b: number) => a + b, 0) / this.activeCompare.dataA.length).toFixed(1)} ${this.activeCompare.unitA}`)
+                      Text(this.avgText(this.activeCompare.dataA, this.activeCompare.unitA))
                         .fontSize(AppFont.SIZE_FOOTNOTE)
                         .fontColor(this.activeCompare.colorA)
                         .fontWeight(FontWeight.Medium)
@@ -493,7 +622,7 @@ export struct HistoryPage {
                       Text('峰值')
                         .fontSize(AppFont.SIZE_CAPTION)
                         .fontColor(AppColors.TEXT_TERTIARY)
-                      Text(`${this.maxOf(this.activeCompare.dataA).toFixed(1)} ${this.activeCompare.unitA}`)
+                      Text(this.maxText(this.activeCompare.dataA, this.activeCompare.unitA))
                         .fontSize(AppFont.SIZE_FOOTNOTE)
                         .fontColor(this.activeCompare.colorA)
                         .fontWeight(FontWeight.Medium)
@@ -505,7 +634,7 @@ export struct HistoryPage {
                       Text('均值')
                         .fontSize(AppFont.SIZE_CAPTION)
                         .fontColor(AppColors.TEXT_TERTIARY)
-                      Text(`${(this.activeCompare.dataB.reduce((a: number, b: number) => a + b, 0) / this.activeCompare.dataB.length).toFixed(1)} ${this.activeCompare.unitB}`)
+                      Text(this.avgText(this.activeCompare.dataB, this.activeCompare.unitB))
                         .fontSize(AppFont.SIZE_FOOTNOTE)
                         .fontColor(this.activeCompare.colorB)
                         .fontWeight(FontWeight.Medium)
@@ -516,7 +645,7 @@ export struct HistoryPage {
                       Text('峰值')
                         .fontSize(AppFont.SIZE_CAPTION)
                         .fontColor(AppColors.TEXT_TERTIARY)
-                      Text(`${this.maxOf(this.activeCompare.dataB).toFixed(1)} ${this.activeCompare.unitB}`)
+                      Text(this.maxText(this.activeCompare.dataB, this.activeCompare.unitB))
                         .fontSize(AppFont.SIZE_FOOTNOTE)
                         .fontColor(this.activeCompare.colorB)
                         .fontWeight(FontWeight.Medium)
@@ -586,20 +715,10 @@ export struct HistoryPage {
         .width('100%')
         .alignItems(HorizontalAlign.Start)
 
-        // ===== 5. 快捷功能 =====
+        // ===== 5. 其他统计 =====
         Column({ space: AppSpace.SM }) {
-          SectionHeader({ title: '快捷功能', subtitle: '数据管理与分析' })
-
-          Grid() {
-            GridItem() { this.funcEntry($r('sys.symbol.house_fill'), '设备日志', AppColors.PRIMARY) }
-            GridItem() { this.funcEntry($r('sys.symbol.bolt_fill'), '能耗统计', AppColors.SENSOR_POWER) }
-            GridItem() { this.funcEntry($r('sys.symbol.flame_fill'), '告警中心', AppColors.WARNING) }
-            GridItem() { this.funcEntry($r('sys.symbol.paperplane_fill'), '数据导出', AppColors.SUCCESS) }
-          }
-          .columnsTemplate('1fr 1fr')
-          .columnsGap(AppSpace.CARD_GAP)
-          .rowsGap(AppSpace.CARD_GAP)
-          .width('100%')
+          SectionHeader({ title: '其他统计', subtitle: this.backendStatsAvailable ? 'A9 v5 · 12 类真实状态' : '暂无真实数据' })
+          this.backendStatsChart()
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)

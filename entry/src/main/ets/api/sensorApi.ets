@@ -1,9 +1,8 @@
 /**
  * 传感器数据 API · 对接设备端网关
- * 策略: HTTP 优先，失败降级到 MockData
+ * 策略: v5 真实硬件优先。离线传感器 current=null，前端显示离线且不补模拟值。
  */
 import { Sensor, SensorGroup, SensorReading } from './types';
-import { MockData } from '../mock/mockData';
 import { Http } from './http';
 import { normalizeSensor } from './adapter';
 
@@ -29,10 +28,9 @@ export class SensorApi {
         const data = JSON.parse(remote) as Record<string, Object>[];
         return data.map((item: Record<string, Object>) => normalizeSensor(item));
       } catch (e) {
-        // 降级
       }
     }
-    return MockData.sensors;
+    return [];
   }
 
   /** 按分组获取 */
@@ -61,8 +59,7 @@ export class SensorApi {
         // 降级
       }
     }
-    const s = MockData.sensors.find(x => x.id === id);
-    return s ? s.history : [];
+    return [];
   }
 
   /** 获取温湿度历史 (完整结构,含时间标签) */
@@ -83,29 +80,24 @@ export class SensorApi {
         // 降级
       }
     }
-    // 降级: 返回 mock
     const fallback: TempHumidHistory = {
-      temp: [22.5, 22.0, 21.8, 22.1, 23.0, 24.1, 25.2, 26.0, 26.5, 25.8, 24.3, 23.1],
-      humid: [58, 60, 62, 61, 56, 52, 48, 45, 43, 46, 50, 55],
-      labels: ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18', '20', '22']
+      temp: [],
+      humid: [],
+      labels: []
     };
     return fallback;
   }
 
-  /** 订阅实时数据（模拟推送） */
+  /** 订阅实时数据：轮询 v5 真实状态，不再生成模拟波动 */
   static subscribeRealtime(onReading: (id: string, reading: SensorReading) => void): () => void {
     const timer = setInterval(() => {
-      MockData.sensors.forEach(s => {
-        const fluctuation = (Math.random() - 0.5) * 0.4;
-        const nextVal: number = s.current.value + fluctuation;
-        const digits: number = s.current.unit === '触发' || s.current.unit === '关闭' ? 0 : 1;
-        const reading: SensorReading = {
-          value: parseFloat(nextVal.toFixed(digits)),
-          unit: s.current.unit,
-          timestamp: Date.now()
-        };
-        s.current = reading;
-        onReading(s.id, s.current);
+      SensorApi.getSensors().then((sensors: Sensor[]) => {
+        sensors.forEach((s: Sensor) => {
+          if (s.current && s.current.unit !== '离线') {
+            onReading(s.id, s.current);
+          }
+        });
+      }).catch(() => {
       });
     }, 3000);
     return () => clearInterval(timer);
