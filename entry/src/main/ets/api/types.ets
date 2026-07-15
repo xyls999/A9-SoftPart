@@ -14,7 +14,9 @@ export enum DeviceType {
   AC = 'ac',
   DOOR = 'door',
   LIGHT = 'light',
-  CAMERA = 'camera'
+  CAMERA = 'camera',
+  ALARM = 'alarm',
+  CURTAIN = 'curtain'
 }
 
 export enum DeviceStatus {
@@ -39,6 +41,12 @@ export interface Device {
   mode?: string;
   /** 电量百分比（电池设备） */
   battery?: number;
+  /** 后端累计在线时长，单位秒；未上报时为空 */
+  uptimeSeconds?: number;
+  /** 最近一次在线时间；保留后端时间字符串 */
+  lastSeen?: string;
+  /** 本次上线开始时间；保留后端时间字符串 */
+  onlineSince?: string;
 }
 
 // ============ 设备控制参数 ============

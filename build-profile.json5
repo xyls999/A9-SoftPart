@@ -5,13 +5,13 @@
         "name": "default",
         "type": "HarmonyOS",
         "material": {
-          "certpath": "C:\\Users\\xyls\\.ohos\\config\\default_Harmon_uhZyrA6v00g9E33i1ehbXYWJA8Hm9xVbSkIFlQ4vMHU=.cer",
+          "certpath": "C:\\Users\\xyls\\.ohos\\config\\default_Harmon_LandscapeControl_3SmfR62wEcC-zyQRIEF2TBw4VvgwNX7ZFIF6e_lMCYo=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "0000001BFDB0E94CD1EC43ED63558C50DA78D12F9D089C2B90BD5CA1540B52512EC90355EC0A899047CD41",
-          "profile": "C:\\Users\\xyls\\.ohos\\config\\default_Harmon_uhZyrA6v00g9E33i1ehbXYWJA8Hm9xVbSkIFlQ4vMHU=.p7b",
+          "keyPassword": "0000001A67804735A77D8FC336C294D34C55C249149CB7E87F8F5A2656B4276D1B45B52EC8BD66FF6037",
+          "profile": "C:\\Users\\xyls\\.ohos\\config\\default_Harmon_LandscapeControl_3SmfR62wEcC-zyQRIEF2TBw4VvgwNX7ZFIF6e_lMCYo=.p7b",
           "signAlg": "SHA256withECDSA",
-          "storeFile": "C:\\Users\\xyls\\.ohos\\config\\default_Harmon_uhZyrA6v00g9E33i1ehbXYWJA8Hm9xVbSkIFlQ4vMHU=.p12",
-          "storePassword": "0000001B5842EFF58EDDB59CF10277E18CD20F3A31D3065ACC6E66537E45BBF0D679D07F3150E96C09B288"
+          "storeFile": "C:\\Users\\xyls\\.ohos\\config\\default_Harmon_LandscapeControl_3SmfR62wEcC-zyQRIEF2TBw4VvgwNX7ZFIF6e_lMCYo=.p12",
+          "storePassword": "0000001AE7AA4507C958D83FF319FEBA081C5A3E18EA99D94E5F17807C73EA94D863D034230CA4019338"
         }
       }
     ],

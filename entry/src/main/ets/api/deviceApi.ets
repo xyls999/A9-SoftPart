@@ -1,15 +1,26 @@
 /**
  * 设备控制 API · 对接设备端网关
- * 策略: v5 真实硬件优先。离线设备由后端标记 offline，状态为关且无模拟值。
+ * 策略: v6.1 真实硬件优先。离线设备由后端标记 offline，控制失败不伪造成功状态。
  */
 import { Device, DeviceType, DeviceStatus, ControlParams } from './types';
-import { MockData } from '../mock/mockData';
 import { Http } from './http';
 import { normalizeDevice } from './adapter';
 
+interface DeviceMutationResult {
+  success?: boolean;
+  data?: Object;
+}
+
 interface DeviceControlResponse {
-  success: boolean;
-  device: Device;
+  success?: boolean;
+  device?: Device;
+  result?: DeviceMutationResult;
+  error?: string;
+}
+
+interface DeviceListResponse {
+  devices?: Record<string, Object>[];
+  total?: number;
 }
 
 interface ControlRequestBody {
@@ -19,6 +30,7 @@ interface ControlRequestBody {
 
 interface ToggleRequestBody {
   isOn: boolean;
+  doorPassword?: string;
 }
 
 interface AddDeviceRequestBody {
@@ -39,18 +51,33 @@ interface BearPiCommandBody {
   command: string;
 }
 
+export interface DeviceSnapshot {
+  available: boolean;
+  devices: Device[];
+}
+
 export class DeviceApi {
   /** 获取全部设备列表 */
   static async getDevices(): Promise<Device[]> {
+    return (await DeviceApi.getDeviceSnapshot()).devices;
+  }
+
+  /** 获取设备列表及接口可用状态，空数组不再和请求失败混为一谈。 */
+  static async getDeviceSnapshot(): Promise<DeviceSnapshot> {
     const remote = await Http.get('/api/devices');
     if (remote) {
       try {
-        const data = JSON.parse(remote) as Record<string, Object>[];
-        return data.map((item: Record<string, Object>) => normalizeDevice(item));
+        const parsed = JSON.parse(remote) as Object;
+        const data = Array.isArray(parsed) ? parsed as Record<string, Object>[] :
+          (parsed as DeviceListResponse).devices || [];
+        return {
+          available: true,
+          devices: data.map((item: Record<string, Object>) => normalizeDevice(item))
+        };
       } catch (e) {
       }
     }
-    return [];
+    return { available: false, devices: [] };
   }
 
   /** 获取单个设备详情 */
@@ -66,46 +93,31 @@ export class DeviceApi {
     if (respText) {
       try {
         const resp = JSON.parse(respText) as DeviceControlResponse;
-        if (resp.success) return true;
+        if (resp.success === true || resp.result?.success === true) return true;
       } catch (e) {
-        // 降级
       }
     }
-    const dev = MockData.devices.find(d => d.id === id);
-    if (dev) {
-      if (action === 'set_speed' || action === 'set_temp' || action === 'set_brightness') {
-        dev.primaryValue = params.value as number;
-      }
-      if (action === 'set_mode' && dev.mode !== undefined) {
-        dev.mode = params.mode as string;
-      }
-    }
-    return true;
+    return false;
   }
 
   /** 开关设备 */
-  static async toggle(id: string, isOn: boolean): Promise<boolean> {
-    const body: ToggleRequestBody = { isOn };
+  static async toggle(id: string, isOn: boolean, doorPassword: string = ''): Promise<boolean> {
+    const body: ToggleRequestBody = doorPassword.length > 0 ? { isOn: isOn, doorPassword: doorPassword } : { isOn: isOn };
     const respText = await Http.post(`/api/devices/${id}/toggle`, body);
     if (respText) {
       try {
         const resp = JSON.parse(respText) as DeviceControlResponse;
-        if (resp.success) return true;
+        if (resp.success === true || resp.result?.success === true) return true;
       } catch (e) {
-        // 降级
       }
     }
-    const dev = MockData.devices.find(d => d.id === id);
-    if (dev) dev.isOn = isOn;
-    return true;
+    return false;
   }
 
   /** 门禁开锁 */
   static async unlockDoor(id: string, pin: string): Promise<boolean> {
     if (!pin) return false;
-    await DeviceApi.toggle(id, true);
-    setTimeout(() => { DeviceApi.toggle(id, false); }, 8000);
-    return true;
+    return DeviceApi.toggle(id, true, pin);
   }
 
   /** 添加设备 */
@@ -118,13 +130,11 @@ export class DeviceApi {
     if (respText) {
       try {
         const resp = JSON.parse(respText) as DeviceControlResponse;
-        if (resp.success) return true;
+        if (resp.success === true || resp.result?.success === true) return true;
       } catch (e) {
-        // 降级
       }
     }
-    MockData.devices.push(device);
-    return true;
+    return false;
   }
 
   /** BearPi 亮度 / 人感 / 雷达命令 */
@@ -144,21 +154,11 @@ export class DeviceApi {
 
   /** 移除设备 */
   static async removeDevice(id: string): Promise<boolean> {
-    const idx = MockData.devices.findIndex(d => d.id === id);
-    if (idx >= 0) MockData.devices.splice(idx, 1);
-    return true;
+    return false;
   }
 
   /** 生成新设备 ID */
   static genId(type: string): string {
-    const prefix = type + '_';
-    let max = 0;
-    MockData.devices.forEach(d => {
-      if (d.id.startsWith(prefix)) {
-        const num = parseInt(d.id.substring(prefix.length), 10);
-        if (num > max) max = num;
-      }
-    });
-    return prefix + (max + 1);
+    return type + '_' + Date.now();
   }
 }

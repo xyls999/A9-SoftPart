@@ -39,9 +39,26 @@ function boolOf(value: Object | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
+function optionalNumberOf(...values: (Object | undefined)[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === 'number' && value === value) return value;
+  }
+  return undefined;
+}
+
+function optionalTextOf(...values: (Object | undefined)[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
 function alertLevelOf(value: Object | undefined): 'info' | 'warning' | 'danger' {
-  if (typeof value === 'string' && (value === 'warning' || value === 'danger' || value === 'info')) {
-    return value as 'info' | 'warning' | 'danger';
+  if (typeof value === 'string') {
+    const level = value.toLowerCase();
+    if (level === 'critical' || level === 'danger' || level === 'high') return 'danger';
+    if (level === 'warning' || level === 'medium') return 'warning';
+    if (level === 'info' || level === 'low') return 'info';
   }
   return 'info';
 }
@@ -56,7 +73,14 @@ export function iconFromName(name: string, fallback: Resource = $r('sys.symbol.h
       return $r('sys.symbol.air_fill');
     case 'door_service':
     case 'door':
+    case 'lock':
       return $r('sys.symbol.door_service');
+    case 'lock_open_fill':
+    case 'curtain':
+      return $r('sys.symbol.doors_and_windows_closed');
+    case 'bell_fill':
+    case 'alarm':
+      return $r('sys.symbol.bell_fill');
     case 'lightbulb':
     case 'light':
       return $r('sys.symbol.lightbulb');
@@ -94,6 +118,11 @@ export function iconFromName(name: string, fallback: Resource = $r('sys.symbol.h
 export function normalizeDevice(raw: AnyRecord): Device {
   const type = textOf(raw.type, DeviceType.LIGHT) as DeviceType;
   const iconName = textOf(raw.icon, type);
+  const values = raw.values as AnyRecord | undefined;
+  const primaryValue = values ? optionalNumberOf(raw.primaryValue, raw.primary_value, values.brightness,
+    values.temperature, values.speed, values.position) : optionalNumberOf(raw.primaryValue, raw.primary_value);
+  const isOn = values ? boolOf(raw.isOn, boolOf(raw.is_on, boolOf(values.is_on, false))) :
+    boolOf(raw.isOn, boolOf(raw.is_on, false));
   return {
     id: textOf(raw.id, `device_${Date.now()}`),
     name: visibleTextOf(raw.name, '智能设备'),
@@ -101,18 +130,32 @@ export function normalizeDevice(raw: AnyRecord): Device {
     status: textOf(raw.status, DeviceStatus.OFFLINE) as DeviceStatus,
     room: visibleTextOf(raw.room, '全屋'),
     icon: iconFromName(iconName),
-    primaryValue: numberOf(raw.primaryValue, 0),
-    isOn: boolOf(raw.isOn, false),
+    primaryValue: primaryValue === undefined ? 0 : primaryValue,
+    isOn: isOn,
     mode: typeof raw.mode === 'string' ? visibleTextOf(raw.mode, '自动') : undefined,
-    battery: typeof raw.battery === 'number' ? raw.battery : undefined
+    battery: typeof raw.battery === 'number' ? raw.battery : undefined,
+    uptimeSeconds: optionalNumberOf(raw.uptimeSeconds, raw.uptime_seconds, raw.onlineTime, raw.online_time),
+    lastSeen: optionalTextOf(raw.lastSeen, raw.last_seen, raw.lastOnline, raw.last_online),
+    onlineSince: optionalTextOf(raw.onlineSince, raw.online_since)
   };
 }
 
 export function normalizeSensor(raw: AnyRecord): Sensor {
   const current = raw.current as AnyRecord | undefined;
+  const values = raw.values as AnyRecord | undefined;
   const type = textOf(raw.type, SensorType.TEMPERATURE) as SensorType;
   const historyRaw = raw.history as Array<number> | undefined;
-  const isOffline = current === undefined || current === null || textOf(raw.status, '') === DeviceStatus.OFFLINE || (typeof raw.online === 'boolean' && raw.online === false);
+  let valuesReading: number | undefined = undefined;
+  if (values) {
+    if (type === SensorType.TEMPERATURE) valuesReading = optionalNumberOf(values.temperature, values.value);
+    else if (type === SensorType.HUMIDITY) valuesReading = optionalNumberOf(values.humidity, values.value);
+    else valuesReading = optionalNumberOf(values.value);
+  }
+  const hasReading = current !== undefined && current !== null || valuesReading !== undefined || typeof raw.value === 'number';
+  const isOffline = !hasReading || textOf(raw.status, '') === DeviceStatus.OFFLINE ||
+    (typeof raw.online === 'boolean' && raw.online === false);
+  const currentValue = current ? numberOf(current.value, numberOf(raw.value, valuesReading === undefined ? 0 : valuesReading)) :
+    numberOf(raw.value, valuesReading === undefined ? 0 : valuesReading);
   return {
     id: textOf(raw.id, `sensor_${Date.now()}`),
     name: visibleTextOf(raw.name, '传感器'),
@@ -121,7 +164,7 @@ export function normalizeSensor(raw: AnyRecord): Sensor {
     room: visibleTextOf(raw.room, '全屋'),
     icon: iconFromName(textOf(raw.icon, type)),
     current: {
-      value: current ? numberOf(current.value, numberOf(raw.value, 0)) : numberOf(raw.value, 0),
+      value: currentValue,
       unit: isOffline ? '离线' : current ? textOf(current.unit, textOf(raw.unit, '')) : textOf(raw.unit, ''),
       timestamp: current ? numberOf(current.timestamp, Date.now()) : Date.now()
     },

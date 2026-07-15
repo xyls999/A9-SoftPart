@@ -1,202 +1,110 @@
 /**
- * 竖屏语音主页面
+ * 明日家居主控：智能对话 + 数据管理。
+ * 保留原有 ChatApi，主题和页面切换仅改变前端表现。
  */
-import { DeviceApi } from '../api/deviceApi';
-import { SensorApi } from '../api/sensorApi';
-import { MonitorApi } from '../api/monitorApi';
 import { ChatApi } from '../api/chatApi';
-import { BackendStatItem, SystemStatsApi } from '../api/systemStatsApi';
-import {
-  AlertMessage,
-  ChatMessage,
-  ChatRole,
-  Device,
-  DeviceType,
-  Sensor,
-  SensorGroup
-} from '../api/types';
-import { AppColors } from '../theme/Colors';
-import { AppSpace } from '../theme/Spacing';
-import { AppFont } from '../theme/Typography';
-import { StatRing } from '../components/StatRing';
+import { ChatMessage, ChatRole } from '../api/types';
+import { HistoryPage } from './HistoryPage';
+import { TacticalMotion, TacticalTheme } from '../theme/TacticalTheme';
 
 @Component
 export struct ControlPanelPage {
   @State activePage: number = 0;
-  @State devices: Device[] = [];
-  @State envSensors: Sensor[] = [];
-  @State alerts: AlertMessage[] = [];
-  @State sensorCount: number = 0;
+  @State isDark: boolean = true;
   @State inputText: string = '';
   @State messages: ChatMessage[] = [];
   @State isResponding: boolean = false;
   @State isListening: boolean = false;
   @State pressedKey: string = '';
-  @State bgAngle: number = 132;
-  @State breathScale: number = 1;
-  @State realTempData: number[] = [];
-  @State realHumidData: number[] = [];
-  @State backendStatsAvailable: boolean = false;
-  @State backendDeviceRate: number = 0;
-  @State backendStatsItems: BackendStatItem[] = [];
+  @State contentVisible: boolean = true;
+  @State booting: boolean = true;
+  @State bootVisible: boolean = true;
+  @State bootProgress: number = 0;
+  @State bootStage: number = 0;
+  @State themeSwitching: boolean = false;
+  @State themeProgress: number = 0;
+  @State themeStage: number = 0;
+  @State targetDark: boolean = false;
+  @State themeClosing: boolean = false;
+  @State pageDirection: number = 1;
+  @State pageSwitching: boolean = false;
+  @State switchProgress: number = 0;
+  @State switchStage: number = 0;
+  @State targetPage: number = 0;
+  @State switchClosing: boolean = false;
+  @State motionTick: number = 0;
+  @State thinkingTick: number = 0;
+  @State isThinking: boolean = false;
+  @State thinkingProgress: number = 0;
+  @State thinkingFinishing: boolean = false;
+  @State revealingMessageId: string = '';
+  @State replyVisible: boolean = true;
+  @State assistantReveal: number = 0;
   private msgId: number = 1;
-  private weekEnergy: number[] = [];
-  private motionTimer: number = -1;
+  private motionRunId: number = 0;
+  private thinkingRunId: number = 0;
   private chatScroller: Scroller = new Scroller();
+  private timers: number[] = [];
 
   aboutToAppear(): void {
     this.messages = [{
       id: 'msg_0',
       role: ChatRole.ASSISTANT,
-      content: '你好，我是智泽家居。你可以输入消息，也可以点击右下角语音和我对话。',
+      content: '你好，我是明日家居。系统已就绪。',
       timestamp: Date.now()
     }];
-    this.motionTimer = setInterval(() => {
-      this.bgAngle = (this.bgAngle + 1) % 360;
-      this.breathScale = this.breathScale === 1 ? 1.035 : 1;
-    }, 1800);
-    this.loadData();
+    this.startMotionLoop();
+    this.startBootSequence();
   }
 
   aboutToDisappear(): void {
-    if (this.motionTimer !== -1) clearInterval(this.motionTimer);
+    for (const timer of this.timers) clearTimeout(timer);
+    this.timers = [];
   }
 
-  async loadData(): Promise<void> {
-    const devices = await DeviceApi.getDevices();
-    const envSensors = await SensorApi.getByGroup(SensorGroup.ENVIRONMENT);
-    const remoteAlerts = await MonitorApi.getAlerts();
-    const history = await SensorApi.getTempHumidHistory();
-    const allSensors = await SensorApi.getSensors();
-    const featureStats = await SystemStatsApi.getFeatureStats();
-    this.devices = devices ? devices : [];
-    this.envSensors = envSensors ? envSensors.slice(0, 3) : [];
-    this.alerts = remoteAlerts ? remoteAlerts : [];
-    this.sensorCount = allSensors ? allSensors.length : 0;
-    if (history && history.temp && history.temp.length > 0) {
-      this.realTempData = history.temp;
-      this.realHumidData = history.humid ? history.humid : [];
-    }
-    const energy = allSensors.find((s: Sensor) => s.id === 'power_02' || s.name.includes('今日电量'));
-    if (energy) {
-      this.weekEnergy = this.weekEnergy.map((value: number, index: number) => {
-        if (index === this.weekEnergy.length - 1) {
-          return energy.current.value;
-        }
-        return value;
-      });
-    }
-    this.backendStatsAvailable = featureStats.available;
-    this.backendDeviceRate = featureStats.deviceOnlineRate;
-    this.backendStatsItems = featureStats.items;
+  private page(): string { return TacticalTheme.page(this.isDark); }
+  private panel(): string { return TacticalTheme.panel(this.isDark); }
+  private raised(): string { return TacticalTheme.panelRaised(this.isDark); }
+  private input(): string { return TacticalTheme.input(this.isDark); }
+  private text(): string { return TacticalTheme.text(this.isDark); }
+  private secondary(): string { return TacticalTheme.textSecondary(this.isDark); }
+  private muted(): string { return TacticalTheme.textMuted(this.isDark); }
+  private frameTone(): string { return TacticalTheme.border(this.isDark); }
+  private accent(): string { return TacticalTheme.accent(this.isDark); }
+  private brandInk(): string { return this.isDark ? '#0B1B25' : '#173027'; }
+  private brandAccent(): string { return this.isDark ? '#8FD3EE' : '#4D8B70'; }
+  private brandGhost(): string { return this.isDark ? '#D6EDF7' : '#DCEDE4'; }
+
+  private bootLabel(): string {
+    if (this.bootStage <= 0) return '唤醒本地服务';
+    if (this.bootStage === 1) return '载入家居模块';
+    if (this.bootStage === 2) return '建立数据连接';
+    if (this.bootStage === 3) return '整理界面层级';
+    return '系统准备完成';
   }
 
-  private safeDevices(): Device[] {
-    return this.devices ? this.devices : [];
+  private switchLabel(): string {
+    if (this.switchStage <= 0) return '准备切换页面';
+    if (this.switchStage === 1) return '收拢当前内容';
+    if (this.switchStage === 2) return '整理页面结构';
+    if (this.switchStage === 3) return '展开目标页面';
+    return '页面切换完成';
   }
 
-  private safeSensors(): Sensor[] {
-    return this.envSensors ? this.envSensors : [];
+  private targetLabel(): string {
+    return this.targetPage === 0 ? '明日家居' : '数据管理';
   }
 
-  private safeAlerts(): AlertMessage[] {
-    return this.alerts ? this.alerts : [];
+  private themeLabel(): string {
+    if (this.themeStage <= 0) return '准备调整光影';
+    if (this.themeStage === 1) return '收起当前色调';
+    if (this.themeStage === 2) return '转换明暗层级';
+    if (this.themeStage === 3) return '展开新的色调';
+    return '光影切换完成';
   }
 
   private safeMessages(): ChatMessage[] {
     return this.messages ? this.messages : [];
-  }
-
-  private safeNumbers(values: number[]): number[] {
-    return values ? values : [];
-  }
-
-  private displayText(value: string | undefined | null, fallback: string): string {
-    if (value === undefined || value === null) return fallback;
-    const text = value.trim();
-    const lower = text.toLowerCase();
-    if (text.length === 0 || lower === 'undefined' || lower === 'undifeid' || lower === 'null' || lower === 'nan') return fallback;
-    return text;
-  }
-
-  private chineseText(value: string | undefined | null, fallback: string): string {
-    const text = this.displayText(value, fallback);
-    if (/[A-Za-z]/.test(text)) return fallback;
-    return text;
-  }
-
-  private numberText(value: number | undefined | null, fallback: string): string {
-    if (value === undefined || value === null || value !== value) return fallback;
-    return `${value}`;
-  }
-
-  private onlineCount(): number {
-    return this.safeDevices().filter((d: Device) => d.status !== 'offline').length;
-  }
-
-  private primaryDevices(): Device[] {
-    return this.safeDevices().filter((d: Device) => d.type !== DeviceType.CAMERA).slice(0, 4);
-  }
-
-  private unreadAlertCount(): number {
-    return this.safeAlerts().filter((a: AlertMessage) => !a.isRead).length;
-  }
-
-  private avgOf(values: number[]): number {
-    values = this.safeNumbers(values);
-    if (values.length === 0) return 0;
-    return values.reduce((a: number, b: number) => a + b, 0) / values.length;
-  }
-
-  private maxOf(values: number[]): number {
-    values = this.safeNumbers(values);
-    let max = 0;
-    for (const value of values) {
-      if (value > max) max = value;
-    }
-    return max;
-  }
-
-  private normalized(value: number, max: number): number {
-    if (max <= 0) return 0.1;
-    return Math.max(0.1, Math.min(1, value / max));
-  }
-
-  private backendChartItems(): BackendStatItem[] {
-    return this.backendStatsItems.length > 1 ? this.backendStatsItems.slice(1) : [];
-  }
-
-  private tempMood(): number {
-    if (this.realTempData.length === 0) return 0;
-    const temp = this.avgOf(this.realTempData);
-    if (temp < 18) return 0.36;
-    if (temp > 29) return 0.9;
-    return 0.58;
-  }
-
-  private humidMood(): number {
-    if (this.realHumidData.length === 0) return 0;
-    const humid = this.avgOf(this.realHumidData);
-    if (humid < 35) return 0.34;
-    if (humid > 70) return 0.86;
-    return 0.56;
-  }
-
-  private statusText(level: number): string {
-    if (level > 0.78) return '偏高';
-    if (level < 0.42) return '偏低';
-    return '舒适';
-  }
-
-  private sensorValueText(sensor: Sensor): string {
-    if (!sensor || !sensor.current) return '暂无数据';
-    const unit = this.chineseText(sensor.current.unit, '');
-    if (unit === '离线') return '离线';
-    if (unit === '°C') return `${this.numberText(sensor.current.value, '-')} 摄氏度`;
-    if (unit === '%RH') return `${this.numberText(sensor.current.value, '-')}%`;
-    if (unit === 'ppm') return `${this.numberText(sensor.current.value, '-')} 百万分之一`;
-    if (/[A-Za-z]/.test(unit)) return this.numberText(sensor.current.value, '-');
-    return `${this.numberText(sensor.current.value, '-')}${unit}`;
   }
 
   private pressed(key: string): boolean {
@@ -204,87 +112,193 @@ export struct ControlPanelPage {
   }
 
   private touchKey(key: string, event: TouchEvent): void {
-    if (event.type === TouchType.Down) {
-      this.pressedKey = key;
-    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-      this.pressedKey = '';
-    }
+    if (event.type === TouchType.Down) this.pressedKey = key;
+    else if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.pressedKey = '';
   }
 
-  private scrollChatToBottom(): void {
-    setTimeout(() => {
-      this.chatScroller.scrollEdge(Edge.Bottom);
-    }, 60);
+  private later(delay: number, action: () => void): void {
+    this.timers.push(setTimeout(action, delay));
+  }
+
+  private wait(delay: number): Promise<void> {
+    return new Promise<void>(resolve => {
+      this.timers.push(setTimeout(() => resolve(), delay));
+    });
+  }
+
+  private startMotionLoop(): void {
+    const runId = ++this.motionRunId;
+    this.motionTick = 0;
+    this.advanceMotion(runId);
+  }
+
+  private advanceMotion(runId: number): void {
+    if (runId !== this.motionRunId || (!this.booting && !this.pageSwitching && !this.themeSwitching)) return;
+    this.motionTick = (this.motionTick + 1) % 120;
+    this.later(120, () => this.advanceMotion(runId));
+  }
+
+  private startThinkingAnimation(): void {
+    const runId = ++this.thinkingRunId;
+    this.thinkingTick = 0;
+    this.thinkingProgress = 4;
+    this.thinkingFinishing = false;
+    this.isThinking = true;
+    this.advanceThinking(runId);
+  }
+
+  private advanceThinking(runId: number): void {
+    if (runId !== this.thinkingRunId || !this.isThinking || this.thinkingFinishing) return;
+    this.thinkingTick += 1;
+    this.thinkingProgress = Math.min(92, 4 + this.thinkingTick * 4);
+    this.later(140, () => this.advanceThinking(runId));
+  }
+
+  private thinkingLabel(): string {
+    if (this.thinkingFinishing) return '回答准备完成';
+    if (this.thinkingProgress < 30) return '正在理解问题';
+    if (this.thinkingProgress < 58) return '正在检索家庭信息';
+    if (this.thinkingProgress < 82) return '正在组织回答';
+    return '正在校验结果';
+  }
+
+  private thinkingStep(): number {
+    if (this.thinkingFinishing) return 4;
+    if (this.thinkingProgress < 30) return 0;
+    if (this.thinkingProgress < 58) return 1;
+    if (this.thinkingProgress < 82) return 2;
+    return 3;
+  }
+
+  private async completeThinkingAnimation(startedAt: number): Promise<void> {
+    const remaining = Math.max(0, 3360 - (Date.now() - startedAt));
+    if (remaining > 0) await this.wait(remaining);
+    this.thinkingFinishing = true;
+    this.thinkingProgress = 100;
+    await this.wait(260);
+    this.isThinking = false;
+    this.thinkingRunId++;
+  }
+
+  private startBootSequence(): void {
+    this.later(180, () => { this.bootStage = 1; this.bootProgress = 12; });
+    this.later(700, () => { this.bootStage = 2; this.bootProgress = 32; });
+    this.later(1250, () => { this.bootStage = 3; this.bootProgress = 58; });
+    this.later(1800, () => { this.bootStage = 4; this.bootProgress = 82; });
+    this.later(2350, () => { this.bootProgress = 100; });
+    this.later(3050, () => { this.bootVisible = false; });
+    this.revealAssistant(3060);
+    this.later(3380, () => { this.booting = false; });
+  }
+
+  private revealAssistant(delay: number): void {
+    this.assistantReveal = 0;
+    this.later(delay, () => { this.assistantReveal = 1; });
+    this.later(delay + 140, () => { this.assistantReveal = 2; });
+    this.later(delay + 280, () => { this.assistantReveal = 3; });
+  }
+
+  private toggleTheme(): void {
+    if (this.themeSwitching || this.pageSwitching) return;
+    this.targetDark = !this.isDark;
+    this.themeSwitching = true;
+    this.startMotionLoop();
+    this.themeClosing = false;
+    this.themeStage = 0;
+    this.themeProgress = 4;
+    this.later(180, () => { this.themeStage = 1; this.themeProgress = 16; });
+    this.later(440, () => { this.themeStage = 2; this.themeProgress = 36; });
+    this.later(700, () => { this.isDark = this.targetDark; this.themeProgress = 58; });
+    this.later(980, () => { this.themeStage = 3; this.themeProgress = 76; });
+    this.later(1260, () => { this.themeProgress = 91; });
+    this.later(1450, () => { this.themeStage = 4; this.themeProgress = 100; });
+    this.later(1700, () => { this.themeClosing = true; });
+    this.later(TacticalMotion.THEME_ROUTE, () => { this.themeSwitching = false; this.themeClosing = false; });
+  }
+
+  private switchPage(index: number): void {
+    if (index === this.activePage || this.pageSwitching || this.themeSwitching) return;
+    this.pageDirection = index > this.activePage ? 1 : -1;
+    this.targetPage = index;
+    this.pageSwitching = true;
+    this.startMotionLoop();
+    this.switchClosing = false;
+    this.switchStage = 0;
+    this.switchProgress = 3;
+    if (index === 0) this.revealAssistant(1760);
+    this.later(200, () => { this.switchStage = 1; this.switchProgress = 14; });
+    this.later(520, () => { this.switchStage = 2; this.switchProgress = 31; });
+    this.later(830, () => { this.contentVisible = false; this.switchProgress = 49; });
+    this.later(950, () => { this.activePage = index; this.switchProgress = 61; });
+    this.later(1220, () => { this.switchStage = 3; this.contentVisible = true; this.switchProgress = 76; });
+    this.later(1510, () => { this.switchProgress = 91; });
+    this.later(1700, () => { this.switchStage = 4; this.switchProgress = 100; });
+    this.later(1960, () => { this.switchClosing = true; });
+    this.later(TacticalMotion.ROUTE, () => { this.pageSwitching = false; this.switchClosing = false; });
+  }
+
+  private scrollToBottom(): void {
+    setTimeout(() => { this.chatScroller.scrollEdge(Edge.Bottom); }, 60);
   }
 
   async send(): Promise<void> {
     const text = this.inputText.trim();
     if (!text || this.isResponding) return;
-    const userMsg: ChatMessage = {
+    const userMessage: ChatMessage = {
       id: `msg_${this.msgId++}`,
       role: ChatRole.USER,
       content: text,
       timestamp: Date.now()
     };
-    this.messages = this.safeMessages().concat([userMsg]);
+    this.messages = this.safeMessages().concat([userMessage]);
     this.inputText = '';
-    this.scrollChatToBottom();
+    this.scrollToBottom();
 
     const assistantId = `msg_${this.msgId++}`;
+    const thinkingStartedAt = Date.now();
+    let replyContent: string = '';
+    let replyTimestamp: number = Date.now();
+    let requestFailed: boolean = false;
     this.isResponding = true;
+    this.startThinkingAnimation();
     this.messages = this.safeMessages().concat([{
       id: assistantId,
       role: ChatRole.ASSISTANT,
-      content: '正在连接小智助手...',
+      content: '',
       timestamp: Date.now(),
       isStreaming: true
     }]);
-    this.scrollChatToBottom();
+    this.scrollToBottom();
 
     try {
-      await ChatApi.sendStream(
-        this.safeMessages().slice(0, -1),
-        (partial: string) => {
-          this.messages = this.safeMessages().map((m: ChatMessage): ChatMessage =>
-            m.id === assistantId ? {
-              id: assistantId,
-              role: ChatRole.ASSISTANT,
-              content: partial,
-              timestamp: m.timestamp,
-              isStreaming: true
-            } : m
-          );
-          this.scrollChatToBottom();
-        },
-        (finalMsg: ChatMessage) => {
-          const newId = `msg_${this.msgId++}`;
-          this.messages = this.safeMessages().map((m: ChatMessage): ChatMessage =>
-            m.id === assistantId ? {
-              id: newId,
-              role: ChatRole.ASSISTANT,
-              content: finalMsg.content,
-              timestamp: finalMsg.timestamp,
-              isStreaming: false
-            } : m
-          );
-          ChatApi.speak(finalMsg.content);
-          this.scrollChatToBottom();
-        }
-      );
+      const finalMessage = await ChatApi.sendComplete(this.safeMessages().slice(0, -1));
+      replyContent = finalMessage.content;
+      replyTimestamp = finalMessage.timestamp;
     } catch (e) {
-      const err = e as Error;
-      this.messages = this.safeMessages().map((m: ChatMessage): ChatMessage =>
-        m.id === assistantId ? {
-          id: assistantId,
-          role: ChatRole.ASSISTANT,
-          content: err.message ? err.message : 'AI 后端连接失败',
-          timestamp: Date.now(),
-          isStreaming: false
-        } : m
-      );
-      this.scrollChatToBottom();
+      const error = e as Error;
+      requestFailed = true;
+      replyContent = error.message || '智能服务暂时无法连接';
+      replyTimestamp = Date.now();
     } finally {
+      await this.completeThinkingAnimation(thinkingStartedAt);
+      if (!replyContent) replyContent = '暂未收到有效回复';
+      const completedId = `msg_${this.msgId++}`;
+      this.revealingMessageId = completedId;
+      this.replyVisible = false;
+      this.messages = this.safeMessages().map((message: ChatMessage): ChatMessage =>
+        message.id === assistantId ? {
+          id: completedId,
+          role: ChatRole.ASSISTANT,
+          content: replyContent,
+          timestamp: replyTimestamp,
+          isStreaming: false
+        } : message
+      );
+      await this.wait(24);
+      this.replyVisible = true;
+      if (!requestFailed) ChatApi.speak(replyContent);
       this.isResponding = false;
+      this.scrollToBottom();
     }
   }
 
@@ -294,131 +308,452 @@ export struct ControlPanelPage {
     try {
       const text = await ChatApi.voiceToText('');
       this.inputText = text.trim();
-      if (this.inputText) {
-        await this.send();
-      }
+      if (this.inputText) await this.send();
     } finally {
       this.isListening = false;
     }
   }
 
   @Builder
-  bottomTab(index: number, label: string, icon: Resource) {
-    Column({ space: 3 }) {
-      SymbolGlyph(icon)
-        .fontSize(21)
-        .fontColor([this.activePage === index ? AppColors.PRIMARY : AppColors.TEXT_TERTIARY])
-      Text(label)
-        .fontSize(AppFont.SIZE_CAPTION)
-        .fontColor(this.activePage === index ? AppColors.PRIMARY : AppColors.TEXT_TERTIARY)
-        .fontWeight(FontWeight.Bold)
-    }
-    .layoutWeight(1)
-    .height(58)
-    .borderRadius(18)
-    .backgroundColor(this.activePage === index ? AppColors.PRIMARY_BG : this.pressed(`tab_${index}`) ? AppColors.BG_CARD_TAP : '#FFFFFF')
-    .opacity(this.pressed(`tab_${index}`) ? 0.82 : 1)
-    .scale({ x: this.pressed(`tab_${index}`) ? 0.96 : 1, y: this.pressed(`tab_${index}`) ? 0.96 : 1 })
-    .shadow(this.activePage === index ? { radius: 10, color: '#D7ECFF', offsetX: 0, offsetY: 4 } : {
-      radius: 0,
-      color: '#FFFFFF',
-      offsetX: 0,
-      offsetY: 0
-    })
-    .justifyContent(FlexAlign.Center)
-    .alignItems(HorizontalAlign.Center)
-    .animation({ duration: 180, curve: Curve.EaseOut })
-    .onTouch((event: TouchEvent) => { this.touchKey(`tab_${index}`, event); })
-    .onClick(() => { this.activePage = index; })
-  }
-
-  @Builder
-  pageBackdrop() {
+  backdrop() {
     Stack() {
-      Column()
-        .width('100%')
-        .height('100%')
-        .linearGradient({
-          angle: this.bgAngle,
-          colors: [['#FFFFFF', 0.0], ['#ECF8FF', 0.46], ['#D9F0FF', 1.0]]
-        })
-        .animation({ duration: 900, curve: Curve.Linear })
-
-      Column()
-        .width('138%')
-        .height(132)
-        .borderRadius(66)
-        .linearGradient({
-          angle: 8,
-          colors: [['#FFFFFF', 0.0], ['#A9DDFF', 0.38], ['#FFFFFF', 0.62], ['#FFFFFF', 1.0]]
-        })
-        .opacity(0.38)
-        .rotate({ angle: -9 })
-        .position({ x: '-18%', y: '14%' })
-
-      Column()
-        .width('136%')
-        .height(112)
-        .borderRadius(56)
-        .linearGradient({
-          angle: 16,
-          colors: [['#FFFFFF', 0.0], ['#6DBFFF', 0.44], ['#FFFFFF', 0.65], ['#FFFFFF', 1.0]]
-        })
-        .opacity(0.32)
-        .rotate({ angle: 7 })
-        .position({ x: '-16%', y: '60%' })
-
-      Circle({ width: 360, height: 360 })
-        .fill('#7EC8FF')
-        .opacity(0.13)
-        .position({ x: '58%', y: '6%' })
-      Circle({ width: 260, height: 260 })
-        .fill('#BFE8FF')
-        .opacity(0.2)
-        .position({ x: '-20%', y: '48%' })
-      Circle({ width: 180, height: 180 })
-        .fill('#4AAAF0')
-        .opacity(0.13)
-        .position({ x: '68%', y: '72%' })
+      Column().width('100%').height('100%').backgroundColor(this.page())
+      Column().width(3).height('100%').backgroundColor(this.accent()).opacity(0.72).position({ x: 0, y: 0 })
     }
     .width('100%')
     .height('100%')
+    .animation({ duration: TacticalMotion.SWITCH, curve: Curve.EaseOut })
   }
 
   @Builder
-  compactVoiceOrb() {
+  artTitle(title: string) {
     Stack({ alignContent: Alignment.Center }) {
-      Circle({ width: this.isListening ? 72 : 58, height: this.isListening ? 72 : 58 })
-        .fill(this.isListening ? '#BFE8FF' : '#D9F0FF')
-        .opacity(this.isListening ? 0.5 : 0.34)
-        .scale({ x: this.breathScale, y: this.breathScale })
-        .animation({ duration: 900, curve: Curve.EaseInOut })
-      Circle({ width: this.isListening ? 58 : 48, height: this.isListening ? 58 : 48 })
-        .fill('#EDF8FF')
-        .opacity(this.isListening ? 0.52 : 0.44)
-        .scale({ x: this.breathScale === 1 ? 1.02 : 0.98, y: this.breathScale === 1 ? 1.02 : 0.98 })
-        .animation({ duration: 900, curve: Curve.EaseInOut })
-      Column() {
-        SymbolGlyph(this.isListening ? $r('sys.symbol.mic_badge_recordingtape') : $r('sys.symbol.mic_fill'))
-          .fontSize(23)
-          .fontColor([this.isListening ? AppColors.TEXT_INVERSE : AppColors.PRIMARY])
-      }
-      .width(44)
-      .height(44)
-      .borderRadius(22)
-      .backgroundColor(this.isListening ? AppColors.PRIMARY : AppColors.PRIMARY_BG)
-      .border({ width: 1, color: this.isListening ? AppColors.PRIMARY : '#FFFFFF' })
-      .shadow({ radius: this.isListening ? 18 : 10, color: this.isListening ? '#BFE8FF' : '#D7ECFF', offsetX: 0, offsetY: 4 })
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
-      .opacity(this.pressed('voice') ? 0.86 : 1)
-      .scale({ x: this.pressed('voice') ? 0.94 : this.breathScale, y: this.pressed('voice') ? 0.94 : this.breathScale })
-      .animation({ duration: 220, curve: Curve.EaseOut })
-      .onTouch((event: TouchEvent) => { this.touchKey('voice', event); })
-      .onClick(() => this.startVoice())
+      Text(title)
+        .fontSize(28)
+        .fontFamily('HarmonyOS Sans SC')
+        .fontWeight(FontWeight.Bolder)
+        .fontColor(TacticalTheme.gridStrong(this.isDark))
+        .translate({ x: 2, y: 2 })
+      Text(title)
+        .fontSize(28)
+        .fontFamily('HarmonyOS Sans SC')
+        .fontWeight(FontWeight.Bolder)
+        .fontColor(this.text())
+      Column().width(34).height(2).backgroundColor(this.accent()).position({ x: 0, y: 39 })
+      Column().width(8).height(8).border({ width: 1, color: this.accent() }).position({ x: 42, y: 35 })
+        .rotate({ angle: 45 })
     }
-    .width(76)
-    .height(76)
+    .constraintSize({ minWidth: 110 })
+    .height(44)
+    .accessibilityText(title)
+  }
+
+  @Builder
+  loadingCore(progress: number, title: string, subtitle: string, icon: Resource) {
+    Column({ space: 18 }) {
+      Stack() {
+        Progress({ value: progress, total: 100, type: ProgressType.Ring })
+          .width(158).height(158).color(this.accent()).style({ strokeWidth: 2 })
+          .opacity(progress < 10 ? 0.25 : 0.82)
+
+        Column().width(164).height(164)
+          .border({ width: 1, color: TacticalTheme.grid(this.isDark) })
+          .opacity(progress < 20 ? 0 : 0.48)
+          .scale({ x: progress < 20 ? 0.72 : 1, y: progress < 20 ? 0.72 : 1 })
+          .rotate({ angle: this.motionTick * 2.4 })
+          .animation({ duration: 120, curve: Curve.Linear })
+
+        Column().width(144).height(144)
+          .border({ width: 1, color: TacticalTheme.borderStrong(this.isDark) })
+          .scale({ x: progress < 14 ? 0.84 : 1, y: progress < 14 ? 0.84 : 1 })
+          .opacity(progress < 8 ? 0.3 : 1)
+          .rotate({ angle: 45 - this.motionTick * 3.1 })
+          .animation({ duration: 120, curve: Curve.Linear })
+
+        Column().width(104).height(104)
+          .border({ width: 1, color: this.accent() })
+          .scale({ x: progress < 40 ? 0.72 : 1, y: progress < 40 ? 0.72 : 1 })
+          .opacity(progress < 24 ? 0.25 : 1)
+          .rotate({ angle: this.motionTick * 4.2 })
+          .animation({ duration: 120, curve: Curve.Linear })
+
+        Column().width(172).height(48)
+          .border({ width: { top: 1, bottom: 1 }, color: TacticalTheme.gridStrong(this.isDark) })
+          .rotate({ angle: this.motionTick * 1.35 })
+          .opacity(0.62).animation({ duration: 120, curve: Curve.Linear })
+        Column().width(48).height(172)
+          .border({ width: { left: 1, right: 1 }, color: TacticalTheme.gridStrong(this.isDark) })
+          .rotate({ angle: -this.motionTick * 1.7 })
+          .opacity(0.48).animation({ duration: 120, curve: Curve.Linear })
+
+        Column().width(1).height(144).backgroundColor(TacticalTheme.gridStrong(this.isDark)).opacity(0.72)
+        Column().width(144).height(1).backgroundColor(TacticalTheme.gridStrong(this.isDark)).opacity(0.72)
+        Column().width(138).height(2).backgroundColor(TacticalTheme.scanline(this.isDark))
+          .translate({ y: -66 + progress * 1.32 })
+          .animation({ duration: 480, curve: Curve.EaseInOut })
+
+        Column().width(24).height(4).backgroundColor(this.accent()).position({ x: 0, y: 0 })
+          .translate({ x: progress < 30 ? -18 : 0 }).animation({ duration: 380, curve: Curve.EaseOut })
+        Column().width(4).height(24).backgroundColor(this.accent()).position({ x: 140, y: 120 })
+          .translate({ y: progress < 58 ? 18 : 0 }).animation({ duration: 380, curve: Curve.EaseOut })
+        Column().width(9).height(9).backgroundColor(this.text()).position({ x: 4, y: 132 })
+          .opacity(progress < 46 ? 0 : 1).animation({ duration: 300, curve: Curve.EaseOut })
+        Column().width(9).height(9).backgroundColor(this.accent()).position({ x: 132, y: 4 })
+          .opacity(progress < 72 ? 0 : 1).animation({ duration: 300, curve: Curve.EaseOut })
+
+        Stack() {
+          Column().width(56).height(56).backgroundColor(this.accent())
+          SymbolGlyph(icon).fontSize(26).fontColor([TacticalTheme.inverse(this.isDark)])
+        }.width(56).height(56)
+          .scale({ x: progress < 68 ? 0.82 : 1, y: progress < 68 ? 0.82 : 1 })
+          .animation({ duration: 360, curve: Curve.EaseOut })
+      }
+      .width(172).height(172)
+
+      Row({ space: 7 }) {
+        ForEach([0, 1, 2, 3], (index: number) => {
+          Column().width(index === Math.min(3, Math.floor(progress / 25)) ? 28 : 12).height(4)
+            .backgroundColor(index === Math.min(3, Math.floor(progress / 25)) ? this.accent() : TacticalTheme.gridStrong(this.isDark))
+            .animation({ duration: 260, curve: Curve.EaseOut })
+        }, (index: number) => `${index}`)
+      }.height(6).alignItems(VerticalAlign.Center)
+
+      Column({ space: 4 }) {
+        this.artTitle(title)
+        Text(subtitle).fontSize(11).fontColor(this.secondary())
+      }
+      .alignItems(HorizontalAlign.Center)
+    }
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  @Builder
+  bootScreen() {
+    Stack() {
+      Column().width('100%').height('100%').backgroundColor(this.page())
+
+      Row() {
+        ForEach([0, 1, 2], (_: number, index: number) => {
+          Column().layoutWeight(1).height('100%')
+            .border({ width: { right: index < 2 ? 1 : 0 }, color: TacticalTheme.grid(this.isDark) })
+        }, (_: number, index: number) => `${index}`)
+      }.width('100%').height('100%').opacity(0.18)
+
+      Row() {
+        Column({ space: 2 }) {
+          Text(`${this.bootProgress}%`).fontSize(34).fontWeight(FontWeight.Bold).fontColor(this.accent())
+          Text('正在载入').fontSize(10).fontColor(this.muted())
+        }.alignItems(HorizontalAlign.Start)
+        Blank()
+        Column({ space: 2 }) {
+          Text('明日家居').fontSize(14).fontFamily('HarmonyOS Sans SC')
+            .fontWeight(FontWeight.Bold).fontColor(this.text())
+          Text(`第 ${this.bootStage + 1} 阶段`).fontSize(10).fontColor(this.muted())
+        }.alignItems(HorizontalAlign.End)
+      }
+      .width('100%').padding({ left: 26, right: 22, top: 24 }).alignItems(VerticalAlign.Top)
+
+      Column({ space: 22 }) {
+        this.loadingCore(this.bootProgress, '明日家居', '正在准备家庭控制界面', $r('sys.symbol.house_fill'))
+        Text(this.bootLabel()).fontSize(11).fontWeight(FontWeight.Bold).fontColor(this.secondary())
+        Row({ space: 9 }) {
+          Column().layoutWeight(1).height(1).backgroundColor(TacticalTheme.gridStrong(this.isDark))
+          Text('万物互联，居有其序').fontSize(10).fontColor(this.muted())
+          Column().layoutWeight(1).height(1).backgroundColor(TacticalTheme.gridStrong(this.isDark))
+        }.width('72%').alignItems(VerticalAlign.Center)
+      }
+      .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+
+      Column({ space: 10 }) {
+        Row() {
+          Text(this.bootLabel()).fontSize(10).fontColor(this.muted())
+          Blank()
+          Text('本地与家庭数据').fontSize(10).fontWeight(FontWeight.Bold).fontColor(this.accent())
+        }.width('100%')
+        Progress({ value: this.bootProgress, total: 100, type: ProgressType.Linear })
+          .width('100%').height(6).color(this.accent()).backgroundColor(TacticalTheme.panelMuted(this.isDark))
+          .style({ strokeWidth: 6 }).animation({ duration: TacticalMotion.BOOT_STEP, curve: Curve.EaseOut })
+        Row({ space: 4 }) {
+          ForEach([0, 1, 2, 3, 4, 5, 6, 7], (index: number) => {
+            Column().layoutWeight(1).height(index <= this.bootStage + 2 ? 4 : 2)
+              .backgroundColor(index <= this.bootStage + 2 ? this.accent() : TacticalTheme.gridStrong(this.isDark))
+          }, (index: number) => `${index}`)
+        }.width('100%').height(6).alignItems(VerticalAlign.Center)
+      }
+      .width('100%').padding({ left: 26, right: 22, bottom: 32 }).position({ x: 0, y: '78%' })
+
+      Column().width(3).height('100%').backgroundColor(this.accent()).position({ x: 0, y: 0 })
+    }
+    .width('100%')
+    .height('100%')
+    .opacity(this.bootVisible ? 1 : 0)
+    .translate({ x: this.bootVisible ? 0 : -32 })
+    .animation({ duration: TacticalMotion.PAGE, curve: Curve.EaseIn })
+  }
+
+  @Builder
+  transitionCurtains() {
+    Stack() {
+      if (this.pageSwitching || this.themeSwitching) {
+        Stack() {
+          Column().width('100%').height('100%').backgroundColor(this.page())
+
+          Row() {
+            ForEach([0, 1, 2], (_: number, index: number) => {
+              Column().layoutWeight(1).height('100%')
+                .backgroundColor(index === 1 ? TacticalTheme.structural(this.isDark) : this.page())
+                .border({ width: { right: index < 2 ? 1 : 0 }, color: TacticalTheme.grid(this.isDark) })
+                .translate({ y: (this.pageSwitching ? this.switchProgress : this.themeProgress) < (index + 1) * 18 ?
+                  (index % 2 === 0 ? -32 : 32) : 0 })
+                .animation({ duration: 460, curve: Curve.EaseOut })
+            }, (_: number, index: number) => `${index}`)
+          }.width('100%').height('100%').opacity(0.34)
+
+          Row() {
+            Column({ space: 1 }) {
+              Text(`${this.pageSwitching ? this.switchProgress : this.themeProgress}%`)
+                .fontSize(35).fontWeight(FontWeight.Bold).fontColor(this.accent())
+              Text(this.themeSwitching ? '正在调整光影' : '正在切换页面').fontSize(10).fontColor(this.muted())
+            }.alignItems(HorizontalAlign.Start)
+            Blank()
+            Text(this.themeSwitching ? (this.targetDark ? '切换至深色' : '切换至浅色') : this.targetLabel())
+              .fontSize(14).fontFamily('HarmonyOS Sans SC')
+              .fontWeight(FontWeight.Bold).fontColor(this.text())
+          }
+          .width('100%').padding({ left: 26, right: 22, top: 24 })
+
+          Column({ space: 20 }) {
+            this.loadingCore(this.pageSwitching ? this.switchProgress : this.themeProgress,
+              this.themeSwitching ? (this.targetDark ? '静夜' : '明昼') : this.targetLabel(),
+              this.themeSwitching ? '正在转换界面光影' : '正在整理页面内容',
+              this.themeSwitching ? (this.targetDark ? $r('sys.symbol.moon_fill') : $r('sys.symbol.sun_max')) :
+              this.targetPage === 0 ? $r('sys.symbol.mic_fill') : $r('sys.symbol.clock_fill'))
+            Text(this.themeSwitching ? this.themeLabel() : this.switchLabel())
+              .fontSize(11).fontWeight(FontWeight.Bold).fontColor(this.secondary())
+          }
+          .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+
+          Column({ space: 10 }) {
+            Row() {
+              Text(this.themeSwitching ? (this.isDark ? '当前为深色' : '当前为浅色') : activePageLabel(this.activePage))
+                .fontSize(10).fontColor(this.muted())
+              Blank()
+              Text(this.themeSwitching ? (this.targetDark ? '目标为深色' : '目标为浅色') : this.targetLabel())
+                .fontSize(10).fontWeight(FontWeight.Bold).fontColor(this.accent())
+            }.width('100%')
+            Progress({ value: this.pageSwitching ? this.switchProgress : this.themeProgress,
+              total: 100, type: ProgressType.Linear })
+              .width('100%').height(6).color(this.accent()).backgroundColor(TacticalTheme.panelMuted(this.isDark))
+              .style({ strokeWidth: 6 }).animation({ duration: TacticalMotion.BOOT_STEP, curve: Curve.EaseOut })
+            Row({ space: 6 }) {
+              ForEach([0, 1, 2, 3, 4, 5], (index: number) => {
+                Column().layoutWeight(1)
+                  .height((this.pageSwitching ? this.switchProgress : this.themeProgress) >= (index + 1) * 16 ? 5 : 2)
+                  .backgroundColor((this.pageSwitching ? this.switchProgress : this.themeProgress) >= (index + 1) * 16 ?
+                    this.accent() : TacticalTheme.gridStrong(this.isDark))
+              }, (index: number) => `${index}`)
+            }.width('100%').height(7).alignItems(VerticalAlign.Center)
+          }
+          .width('100%').padding({ left: 26, right: 22, bottom: 32 }).position({ x: 0, y: '78%' })
+
+          Column().width(3).height('100%').backgroundColor(this.accent()).position({ x: 0, y: 0 })
+        }
+        .width('100%').height('100%')
+        .opacity(this.pageSwitching ? (this.switchClosing ? 0 : 1) : (this.themeClosing ? 0 : 1))
+        .animation({ duration: TacticalMotion.PAGE, curve: Curve.EaseOut })
+        .enabled(false)
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .enabled(false)
+  }
+
+  @Builder
+  brandMark() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width(184)
+        .height(50)
+        .backgroundColor('#FFFFFF')
+        .border({ width: { bottom: 2 }, color: this.brandAccent() })
+
+      Text('明')
+        .fontSize(43)
+        .fontFamily('HarmonyOS Sans SC')
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.brandGhost())
+        .position({ x: 12, y: -6 })
+
+      Column().width(4).height(36).backgroundColor(this.brandAccent()).position({ x: 0, y: 7 })
+      Column().width(34).height(2).backgroundColor(this.brandAccent()).position({ x: 150, y: 0 })
+      Column().width(16).height(1).backgroundColor(this.brandInk()).position({ x: 168, y: 6 })
+      Column().width(8).height(8).border({ width: 1, color: this.brandAccent() }).position({ x: 170, y: 36 })
+        .rotate({ angle: 45 })
+      Column().width(1).height(24).backgroundColor(this.brandGhost()).position({ x: 142, y: 13 })
+
+      Stack() {
+        Row({ space: 0 }) {
+          Text('明日')
+            .fontSize(27)
+            .fontFamily('HarmonyOS Sans SC')
+            .fontWeight(FontWeight.Bolder)
+            .fontColor(this.brandGhost())
+          Text('家居')
+            .fontSize(27)
+            .fontFamily('HarmonyOS Sans SC')
+            .fontWeight(FontWeight.Bolder)
+            .fontColor(this.brandGhost())
+        }.translate({ x: 2, y: 2 })
+        Row({ space: 0 }) {
+          Text('明日')
+            .fontSize(27)
+            .fontFamily('HarmonyOS Sans SC')
+            .fontWeight(FontWeight.Bolder)
+            .fontColor(this.brandInk())
+          Text('家居')
+            .fontSize(27)
+            .fontFamily('HarmonyOS Sans SC')
+            .fontWeight(FontWeight.Bolder)
+            .fontColor(this.brandAccent())
+        }
+      }
+      .width(136)
+      .height(38)
+    }
+    .width(184)
+    .height(50)
+    .accessibilityText('明日家居')
+  }
+
+  @Builder
+  topBar() {
+    Row({ space: 10 }) {
+      this.brandMark()
+
+      Blank()
+
+      Stack() {
+        Column().width(48).height(48).backgroundColor(this.pressed('theme') ? TacticalTheme.accentSoft(this.isDark) : this.panel())
+          .border({ width: 1, color: this.accent() })
+        SymbolGlyph(this.isDark ? $r('sys.symbol.sun_max') : $r('sys.symbol.moon_fill'))
+          .fontSize(21)
+          .fontColor([this.accent()])
+      }
+      .width(48)
+      .height(48)
+      .opacity(this.pressed('theme') ? 0.72 : 1)
+      .scale({ x: this.pressed('theme') ? 0.94 : 1, y: this.pressed('theme') ? 0.94 : 1 })
+      .animation({ duration: TacticalMotion.PRESS, curve: Curve.EaseOut })
+      .accessibilityText(this.isDark ? '切换到白天模式' : '切换到黑夜模式')
+      .onTouch((event: TouchEvent) => this.touchKey('theme', event))
+      .onClick(() => this.toggleTheme())
+    }
+    .width('100%')
+    .height(68)
+    .padding({ left: 18, right: 16, top: 9, bottom: 9 })
+    .backgroundColor(this.panel())
+    .border({ width: { bottom: 1 }, color: this.frameTone() })
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  thinkingIndicator() {
+    Row({ space: 12 }) {
+      Stack() {
+        Progress({ value: this.thinkingProgress, total: 100, type: ProgressType.Ring })
+          .width(44).height(44).color(this.accent()).style({ strokeWidth: 2 })
+          .animation({ duration: this.thinkingFinishing ? 220 : 180, curve: Curve.EaseOut })
+        Column().width(34).height(34).border({ width: 1, color: TacticalTheme.borderStrong(this.isDark) })
+          .rotate({ angle: this.thinkingFinishing ? 45 : this.thinkingTick * 18 })
+          .scale({ x: this.thinkingFinishing ? 0.82 : 1, y: this.thinkingFinishing ? 0.82 : 1 })
+          .opacity(this.thinkingFinishing ? 0.42 : 0.9)
+          .animation({ duration: this.thinkingFinishing ? 240 : 140,
+            curve: this.thinkingFinishing ? Curve.EaseOut : Curve.Linear })
+        Column().width(22).height(22).border({ width: 1, color: this.accent() })
+          .backgroundColor(TacticalTheme.ghost(this.isDark))
+          .rotate({ angle: this.thinkingFinishing ? 45 : 45 - this.thinkingTick * 27 })
+          .scale({ x: this.thinkingFinishing ? 0.68 : 1, y: this.thinkingFinishing ? 0.68 : 1 })
+          .animation({ duration: this.thinkingFinishing ? 240 : 140,
+            curve: this.thinkingFinishing ? Curve.EaseOut : Curve.Linear })
+        if (this.thinkingFinishing) {
+          SymbolGlyph($r('sys.symbol.checkmark'))
+            .fontSize(16)
+            .fontColor([this.accent()])
+            .scale({ x: this.thinkingFinishing ? 1 : 0.72, y: this.thinkingFinishing ? 1 : 0.72 })
+            .animation({ duration: 200, curve: Curve.EaseOut })
+        } else {
+          Column().width(6).height(6).backgroundColor(this.accent())
+            .scale({ x: this.thinkingTick % 2 === 0 ? 0.66 : 1, y: this.thinkingTick % 2 === 0 ? 0.66 : 1 })
+            .animation({ duration: 140, curve: Curve.EaseInOut })
+        }
+      }.width(46).height(46)
+
+      Column({ space: 7 }) {
+        Row() {
+          Text(this.thinkingLabel())
+            .fontSize(16)
+            .fontFamily('HarmonyOS Sans SC')
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.text())
+          Blank()
+          Text(`${Math.round(this.thinkingProgress)}%`).fontSize(10).fontWeight(FontWeight.Bold).fontColor(this.accent())
+        }.width('100%').alignItems(VerticalAlign.Center)
+        Row({ space: 5 }) {
+          ForEach([0, 1, 2, 3], (index: number) => {
+            Column().width(25).height(3)
+              .backgroundColor(index <= this.thinkingStep() ? this.accent() : TacticalTheme.gridStrong(this.isDark))
+              .opacity(index === this.thinkingStep() && !this.thinkingFinishing ? 0.62 : 1)
+              .scale({ x: index === this.thinkingStep() && !this.thinkingFinishing ? 0.88 : 1, y: 1 })
+              .animation({ duration: 180, curve: Curve.EaseOut })
+          }, (index: number) => `${index}`)
+        }.height(4).alignItems(VerticalAlign.Center)
+      }.width(115).alignItems(HorizontalAlign.Start)
+    }
+    .padding({ left: 12, right: 16, top: 10, bottom: 10 })
+    .backgroundColor(this.raised())
+    .border({ width: { left: 2 }, color: this.accent() })
+    .constraintSize({ maxWidth: '86%' })
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  assistantMessage(message: ChatMessage) {
+    Column({ space: 8 }) {
+      Row({ space: 7 }) {
+        Text('明日')
+          .fontSize(12)
+          .fontFamily('HarmonyOS Sans SC')
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.accent())
+        Column().width(30).height(2).backgroundColor(this.accent())
+        Column().width(5).height(5).border({ width: 1, color: this.accent() }).rotate({ angle: 45 })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      Text(message.content)
+        .fontSize(15)
+        .fontFamily('HarmonyOS Sans SC')
+        .fontWeight(FontWeight.Regular)
+        .lineHeight(24)
+        .fontColor(this.text())
+        .width('100%')
+
+      Row() {
+        Column().layoutWeight(1).height(1).backgroundColor(TacticalTheme.grid(this.isDark))
+        Column().width(7).height(7).border({ width: 1, color: this.accent() }).rotate({ angle: 45 })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Bottom)
+    }
+    .padding({ left: 14, right: 12, top: 10, bottom: 8 })
+    .width('82%')
+    .backgroundColor(this.raised())
+    .border({ width: { left: 3, bottom: 1 }, color: this.accent() })
+    .opacity(message.id === this.revealingMessageId && !this.replyVisible ? 0 : 1)
+    .translate({ y: message.id === this.revealingMessageId && !this.replyVisible ? 8 : 0 })
+    .animation({ duration: 280, curve: Curve.EaseOut })
   }
 
   @Builder
@@ -427,521 +762,214 @@ export struct ControlPanelPage {
       if (message.role === ChatRole.USER) {
         Blank()
       }
-
-      Column({ space: AppSpace.XS }) {
-        Text(message.role === ChatRole.USER ? '你' : 'AI')
-          .fontSize(AppFont.SIZE_CAPTION)
-          .fontColor(message.role === ChatRole.USER ? AppColors.PRIMARY : AppColors.TEXT_TERTIARY)
-          .fontWeight(FontWeight.Bold)
-        Text(message.content + (message.isStreaming ? '▍' : ''))
-          .fontSize(AppFont.SIZE_BODY)
-          .fontColor(message.role === ChatRole.USER ? AppColors.TEXT_INVERSE : AppColors.TEXT_PRIMARY)
+      if (message.role === ChatRole.ASSISTANT && message.isStreaming) {
+        this.thinkingIndicator()
+      } else if (message.role === ChatRole.ASSISTANT) {
+        this.assistantMessage(message)
+      } else {
+        Text(message.content)
+          .fontSize(15)
           .lineHeight(23)
-          .padding({ left: AppSpace.BASE, right: AppSpace.BASE, top: AppSpace.SM, bottom: AppSpace.SM })
-          .borderRadius(AppSpace.RADIUS_BASE)
-          .backgroundColor(message.role === ChatRole.USER ? AppColors.PRIMARY : AppColors.BG_CARD)
-          .border({ width: message.role === ChatRole.USER ? 0 : 1, color: '#FFFFFF' })
-          .constraintSize({ maxWidth: '82%' })
+          .fontColor(TacticalTheme.inverse(this.isDark))
+          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+          .backgroundColor(this.accent())
+          .constraintSize({ maxWidth: '86%' })
       }
-      .alignItems(message.role === ChatRole.USER ? HorizontalAlign.End : HorizontalAlign.Start)
-
       if (message.role === ChatRole.ASSISTANT) {
         Blank()
       }
     }
     .width('100%')
-    .padding({ left: AppSpace.XS, right: AppSpace.XS })
+    .padding({ left: 2, right: 2 })
   }
 
   @Builder
-  voicePage() {
-    Column({ space: AppSpace.BASE }) {
-      Column({ space: AppSpace.XS }) {
-        Text('智泽家居')
-          .fontSize(AppFont.SIZE_TITLE_LG)
-          .fontColor(AppColors.TEXT_PRIMARY)
+  iconButton(key: string, label: string, icon: Resource, selected: boolean, enabled: boolean, action: () => void) {
+    Stack() {
+      Column()
+        .width(48)
+        .height(48)
+        .backgroundColor(selected ? this.accent() : this.panel())
+        .border({ width: 1, color: selected ? this.accent() : this.frameTone() })
+      SymbolGlyph(icon)
+        .fontSize(20)
+        .fontColor([selected ? TacticalTheme.inverse(this.isDark) : this.accent()])
+    }
+    .width(48)
+    .height(48)
+    .opacity(!enabled ? 0.42 : this.pressed(key) ? 0.72 : 1)
+    .scale({ x: this.pressed(key) ? 0.94 : 1, y: this.pressed(key) ? 0.94 : 1 })
+    .animation({ duration: TacticalMotion.PRESS, curve: Curve.EaseOut })
+    .accessibilityText(label)
+    .enabled(enabled)
+    .onTouch((event: TouchEvent) => this.touchKey(key, event))
+    .onClick(action)
+  }
+
+  @Builder
+  sendButton() {
+    Stack() {
+      Column().width(48).height(48)
+        .backgroundColor(this.inputText.trim().length > 0 && !this.isResponding ? this.accent() : this.panel())
+        .border({ width: 1, color: this.inputText.trim().length > 0 && !this.isResponding ? this.accent() : this.frameTone() })
+      SymbolGlyph($r('sys.symbol.paperplane_fill')).fontSize(20)
+        .fontColor([this.inputText.trim().length > 0 && !this.isResponding ? TacticalTheme.inverse(this.isDark) : this.muted()])
+    }
+    .width(48).height(48)
+    .opacity(this.pressed('send') ? 0.68 : 1)
+    .scale({ x: this.pressed('send') ? 0.94 : 1, y: this.pressed('send') ? 0.94 : 1 })
+    .animation({ duration: TacticalMotion.PRESS, curve: Curve.EaseOut })
+    .accessibilityText('发送消息')
+    .onTouch((event: TouchEvent) => this.touchKey('send', event))
+    .onClick(() => this.send())
+  }
+
+  @Builder
+  assistantPage() {
+    Column({ space: 10 }) {
+      Row({ space: 7 }) {
+        Circle({ width: 7, height: 7 }).fill(this.isResponding ? this.accent() : TacticalTheme.gridStrong(this.isDark))
+        Text(this.isResponding ? '正在书写' : '明日对话录')
+          .fontSize(13)
+          .fontFamily('HarmonyOS Sans SC')
           .fontWeight(FontWeight.Bold)
-        if (this.isResponding) {
-          Text('正在回复...')
-            .fontSize(AppFont.SIZE_FOOTNOTE)
-            .fontColor(AppColors.PRIMARY)
-        }
-      }
-      .width('100%')
-      .alignItems(HorizontalAlign.Center)
+          .fontColor(this.isResponding ? this.accent() : this.text())
+        Column().width(28).height(1).backgroundColor(this.isResponding ? this.accent() : this.frameTone())
+      }.width('100%').height(26)
+        .border({ width: { bottom: 1 }, color: TacticalTheme.grid(this.isDark) })
+        .opacity(this.assistantReveal >= 1 ? 1 : 0)
+        .translate({ y: this.assistantReveal >= 1 ? 0 : 8 })
+        .animation({ duration: 320, curve: Curve.EaseOut })
 
       Scroll(this.chatScroller) {
-        Column({ space: AppSpace.SM }) {
-          ForEach(this.safeMessages(), (message: ChatMessage) => {
-            this.chatBubble(message)
-          }, (message: ChatMessage) => message.id)
+        Column({ space: 10 }) {
+          ForEach(this.safeMessages(), (message: ChatMessage) => { this.chatBubble(message) }, (message: ChatMessage) => message.id)
         }
         .width('100%')
-        .padding({ top: AppSpace.SM, bottom: AppSpace.SM })
+        .padding({ top: 4, bottom: 8 })
       }
       .layoutWeight(1)
       .width('100%')
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.Spring)
+      .opacity(this.assistantReveal >= 2 ? 1 : 0)
+      .translate({ y: this.assistantReveal >= 2 ? 0 : 12 })
+      .animation({ duration: 360, curve: Curve.EaseOut })
 
-      Row({ space: AppSpace.SM }) {
-        TextInput({ text: this.inputText, placeholder: this.isListening ? '正在聆听...' : '输入消息，或点击右侧语音' })
+      Row({ space: 8 }) {
+        TextInput({ text: this.inputText, placeholder: this.isListening ? '正在聆听...' : '输入消息' })
           .layoutWeight(1)
-          .height(50)
-          .fontSize(AppFont.SIZE_BODY)
-          .fontColor(AppColors.TEXT_PRIMARY)
-          .placeholderColor(AppColors.TEXT_TERTIARY)
-          .placeholderFont({ size: AppFont.SIZE_BODY })
-          .borderRadius(25)
-          .backgroundColor(AppColors.BG_CARD)
-          .padding({ left: AppSpace.BASE, right: AppSpace.BASE })
-          .onChange((value: string) => {
-            this.inputText = value;
-          })
-          .onSubmit(() => this.send())
+          .height(48)
+          .fontSize(15)
+          .fontColor(this.text())
+          .placeholderColor(this.muted())
+          .backgroundColor(this.input())
+          .border({ width: 1, color: this.frameTone() })
+          .padding({ left: 14, right: 14 })
           .enabled(!this.isResponding)
-
-        Column() {
-          SymbolGlyph($r('sys.symbol.paperplane_fill'))
-            .fontSize(18)
-            .fontColor([AppColors.TEXT_INVERSE])
-        }
-        .width(50)
-        .height(50)
-        .borderRadius(25)
-        .backgroundColor(this.inputText.trim() && !this.isResponding ? AppColors.PRIMARY : '#CFE7F8')
-        .opacity(this.inputText.trim() && !this.isResponding ? 1 : 0.72)
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-        .onClick(() => this.send())
-
-        this.compactVoiceOrb()
+          .onChange((value: string) => { this.inputText = value; })
+          .onSubmit(() => this.send())
+        this.iconButton('voice', this.isListening ? '停止语音输入' : '开始语音输入',
+          this.isListening ? $r('sys.symbol.mic_badge_recordingtape') : $r('sys.symbol.mic_fill'),
+          this.isListening, !this.isResponding, () => this.startVoice())
+        this.sendButton()
       }
       .width('100%')
-      .padding({ left: AppSpace.SM, right: AppSpace.SM, top: AppSpace.SM, bottom: AppSpace.SM })
-      .borderRadius(32)
-      .backgroundColor(AppColors.BG_CARD)
-      .border({ width: 1, color: AppColors.PRIMARY_LIGHT })
-      .shadow({ radius: 16, color: '#D7ECFF', offsetX: 0, offsetY: 6 })
+      .padding(8)
+      .backgroundColor(this.raised())
+      .border({ width: 1, color: this.frameTone() })
+      .opacity(this.assistantReveal >= 3 ? 1 : 0)
+      .translate({ y: this.assistantReveal >= 3 ? 0 : 10 })
+      .animation({ duration: 360, curve: Curve.EaseOut })
     }
     .width('100%')
     .height('100%')
-    .padding({ top: AppSpace.BASE, bottom: 102 })
+    .padding({ left: 16, right: 16, top: 12, bottom: 8 })
   }
 
   @Builder
-  backendStatsPanel() {
-    Column({ space: AppSpace.BASE }) {
-      Row() {
-        Text('其他统计')
-          .fontSize(AppFont.SIZE_BODY_LG)
-          .fontColor(AppColors.TEXT_PRIMARY)
-          .fontWeight(FontWeight.Bold)
-        Text(this.backendStatsAvailable ? 'A9 实时状态' : '暂无真实数据')
-          .fontSize(AppFont.SIZE_FOOTNOTE)
-          .fontColor(AppColors.TEXT_TERTIARY)
-          .layoutWeight(1)
-          .textAlign(TextAlign.End)
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-
-      if (this.backendStatsAvailable) {
-        Row({ space: AppSpace.BASE }) {
-          StatRing({ value: this.backendDeviceRate, max: 100, unit: '%', ringColor: AppColors.PRIMARY, ringSize: 82 })
-          Column({ space: AppSpace.XS }) {
-            Text('设备在线率')
-              .fontSize(AppFont.SIZE_BODY)
-              .fontColor(AppColors.TEXT_PRIMARY)
-              .fontWeight(FontWeight.Bold)
-            Text(this.backendStatsItems.length > 0 ? this.backendStatsItems[0].detail : '暂无')
-              .fontSize(AppFont.SIZE_FOOTNOTE)
-              .fontColor(AppColors.TEXT_TERTIARY)
-            Text('数据来自 A9 /api/stats')
-              .fontSize(AppFont.SIZE_CAPTION)
-              .fontColor(AppColors.PRIMARY)
-          }
-          .layoutWeight(1)
-          .alignItems(HorizontalAlign.Start)
-        }
-        .width('100%')
-        .padding({ left: AppSpace.SM, right: AppSpace.SM })
-        .alignItems(VerticalAlign.Center)
-
-        Column({ space: AppSpace.XS }) {
-          ForEach(this.backendChartItems(), (stat: BackendStatItem) => {
-            this.backendStatusRow(stat)
-          }, (stat: BackendStatItem) => stat.key)
-        }
-        .width('100%')
-      } else {
-        Text('后端未返回统计信息')
-          .fontSize(AppFont.SIZE_FOOTNOTE)
-          .fontColor(AppColors.TEXT_TERTIARY)
-          .width('100%')
-          .textAlign(TextAlign.Center)
-          .padding({ top: AppSpace.BASE, bottom: AppSpace.BASE })
-      }
-    }
-    .width('100%')
-    .padding(AppSpace.BASE)
-    .borderRadius(AppSpace.RADIUS_CARD)
-    .backgroundColor('#FFFFFF')
-    .border({ width: 1, color: '#FFFFFF' })
-    .shadow({ radius: 12, color: '#D7ECFF', offsetX: 0, offsetY: 5 })
-  }
-
-  @Builder
-  backendStatusRow(stat: BackendStatItem) {
-    Column({ space: AppSpace.XS }) {
-      Row({ space: AppSpace.SM }) {
-        Column({ space: 2 }) {
-          Text(stat.label)
-            .fontSize(AppFont.SIZE_CAPTION)
-            .fontColor(AppColors.TEXT_SECONDARY)
-            .maxLines(1)
-          Text(stat.detail)
-            .fontSize(9)
-            .fontColor(AppColors.TEXT_TERTIARY)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-        }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-
-        Text(stat.value)
-          .fontSize(AppFont.SIZE_CAPTION)
-          .fontColor(stat.online ? AppColors.PRIMARY : AppColors.TEXT_TERTIARY)
-          .fontWeight(FontWeight.Medium)
-          .maxLines(1)
-          .textAlign(TextAlign.End)
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-
-      if (stat.progress >= 0) {
-        Progress({ value: stat.progress, total: 100, type: ProgressType.Linear })
-          .width('100%')
-          .color(stat.online ? AppColors.PRIMARY : '#A9C7E8')
-          .backgroundColor('#EAF4FF')
-          .style({ strokeWidth: 5 })
-      }
-    }
-    .width('100%')
-    .constraintSize({ minHeight: 48 })
-    .padding({ left: AppSpace.SM, right: AppSpace.SM, top: AppSpace.XS, bottom: AppSpace.XS })
-    .borderRadius(AppSpace.RADIUS_BASE)
-    .backgroundColor('#F5FAFF')
-  }
-
-  @Builder
-  energyPanel() {
-    Column({ space: AppSpace.BASE }) {
-      Row({ space: 8 }) {
-        SymbolGlyph($r('sys.symbol.drop_fill'))
-          .fontSize(22)
-          .fontColor([AppColors.PRIMARY])
-        Text('能耗趋势')
-          .fontSize(AppFont.SIZE_BODY_LG)
-          .fontColor(AppColors.TEXT_PRIMARY)
-          .fontWeight(FontWeight.Bold)
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-
-      if (this.weekEnergy.length > 0) {
-        Row({ space: 8 }) {
-          ForEach(this.weekEnergy, (value: number, index: number) => {
-            Column() {
-              Column()
-                .width('100%')
-                .height(34 + this.normalized(value, this.maxOf(this.weekEnergy)) * 76)
-                .borderRadius({ topLeft: 12, topRight: 12, bottomLeft: 6, bottomRight: 6 })
-                .linearGradient({
-                  angle: 180,
-                  colors: [[index === this.weekEnergy.length - 1 ? '#2378D8' : '#64B7FF', 0.0], ['#DDF2FF', 1.0]]
-                })
-                .opacity(index === this.weekEnergy.length - 1 ? 0.96 : 0.62)
-            }
-            .layoutWeight(1)
-            .height(124)
-            .justifyContent(FlexAlign.End)
-          }, (_: number, index: number) => `${index}`)
-        }
-        .width('100%')
-        .height(132)
-        .alignItems(VerticalAlign.Bottom)
-      } else {
-        Column() {
-          Text('暂无真实能耗数据')
-            .fontSize(AppFont.SIZE_BODY)
-            .fontColor(AppColors.TEXT_TERTIARY)
-        }
-        .width('100%')
-        .height(132)
-        .borderRadius(18)
-        .backgroundColor('#EAF6FF')
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-      }
-    }
-    .width('100%')
-    .padding(AppSpace.BASE)
-    .borderRadius(AppSpace.RADIUS_CARD)
-    .backgroundColor('#FFFFFF')
-    .border({ width: 1, color: '#FFFFFF' })
-    .shadow({ radius: 14, color: '#D7ECFF', offsetX: 0, offsetY: 6 })
-  }
-
-  @Builder
-  flowStrip(level: number, color: string) {
-    Row({ space: 6 }) {
-      ForEach([0, 1, 2, 3, 4, 5], (index: number) => {
-        Column()
-          .layoutWeight(1)
-          .height(12)
-          .borderRadius(6)
-          .backgroundColor(index / 5 <= level ? color : '#DCEEFF')
-          .opacity(index / 5 <= level ? 0.88 : 0.5)
-          .scale({ x: index / 5 <= level ? this.breathScale : 1, y: 1 })
-          .animation({ duration: 900, curve: Curve.EaseInOut })
-      }, (index: number) => `${index}`)
-    }
-    .width('100%')
-    .height(18)
-    .alignItems(VerticalAlign.Center)
-  }
-
-  @Builder
-  conditionCard(label: string, level: number, color: string, icon: Resource) {
-    Column({ space: AppSpace.SM }) {
-      Row({ space: 8 }) {
+  navItem(index: number, label: string, icon: Resource) {
+    Stack({ alignContent: Alignment.BottomStart }) {
+      Row({ space: 9 }) {
         SymbolGlyph(icon)
-          .fontSize(22)
-          .fontColor([color])
-        Text(label)
-          .fontSize(AppFont.SIZE_BODY_LG)
-          .fontColor(AppColors.TEXT_PRIMARY)
-          .fontWeight(FontWeight.Bold)
-        Text(this.statusText(level))
-          .fontSize(AppFont.SIZE_FOOTNOTE)
-          .fontColor(AppColors.TEXT_TERTIARY)
-          .layoutWeight(1)
-          .textAlign(TextAlign.End)
+          .fontSize(19)
+          .fontColor([this.activePage === index ? TacticalTheme.inverse(this.isDark) : this.accent()])
+        Text(label).fontSize(13).fontWeight(FontWeight.Bold)
+          .fontFamily('HarmonyOS Sans SC')
+          .fontColor(this.activePage === index ? TacticalTheme.inverse(this.isDark) : this.secondary())
       }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
+      .padding({ left: 16, bottom: 12 })
 
-      Stack({ alignContent: Alignment.Start }) {
-        Column()
-          .width('100%')
-          .height(54)
-          .borderRadius(18)
-          .backgroundColor('#EAF6FF')
-        Column()
-          .width(`${Math.round(level * 100)}%`)
-          .height(54)
-          .borderRadius(18)
-          .linearGradient({
-            angle: 0,
-            colors: [[color, 0.0], ['#BFE8FF', 1.0]]
-          })
-          .opacity(0.72)
-        Row() {
-          this.flowStrip(level, '#FFFFFF')
-        }
-        .width('100%')
-        .height(54)
-        .padding({ left: AppSpace.SM, right: AppSpace.SM })
-        .alignItems(VerticalAlign.Center)
-      }
-      .width('100%')
-      .height(54)
+      Column()
+        .width(this.activePage === index ? '100%' : 24)
+        .height(3)
+        .backgroundColor(this.activePage === index ? TacticalTheme.inverse(this.isDark) : this.accent())
+        .animation({ duration: TacticalMotion.SWITCH, curve: Curve.EaseOut })
     }
-    .width('100%')
-    .padding(AppSpace.BASE)
-    .borderRadius(AppSpace.RADIUS_CARD)
-    .backgroundColor('#FFFFFF')
-    .border({ width: 1, color: '#FFFFFF' })
-    .shadow({ radius: 12, color: '#D7ECFF', offsetX: 0, offsetY: 5 })
-  }
-
-  @Builder
-  conditionEmptyCard(label: string, color: string, icon: Resource) {
-    Column({ space: AppSpace.SM }) {
-      Row({ space: 8 }) {
-        SymbolGlyph(icon)
-          .fontSize(22)
-          .fontColor([color])
-        Text(label)
-          .fontSize(AppFont.SIZE_BODY_LG)
-          .fontColor(AppColors.TEXT_PRIMARY)
-          .fontWeight(FontWeight.Bold)
-        Text('离线')
-          .fontSize(AppFont.SIZE_FOOTNOTE)
-          .fontColor(AppColors.TEXT_TERTIARY)
-          .layoutWeight(1)
-          .textAlign(TextAlign.End)
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-
-      Column() {
-        Text('暂无真实数据')
-          .fontSize(AppFont.SIZE_BODY)
-          .fontColor(AppColors.TEXT_TERTIARY)
-      }
-      .width('100%')
-      .height(54)
-      .borderRadius(18)
-      .backgroundColor('#EAF6FF')
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
-    }
-    .width('100%')
-    .padding(AppSpace.BASE)
-    .borderRadius(AppSpace.RADIUS_CARD)
-    .backgroundColor('#FFFFFF')
-    .border({ width: 1, color: '#FFFFFF' })
-    .shadow({ radius: 12, color: '#D7ECFF', offsetX: 0, offsetY: 5 })
-  }
-
-  @Builder
-  sensorRibbon(sensor: Sensor, index: number) {
-    Row({ space: AppSpace.SM }) {
-      SymbolGlyph($r('sys.symbol.drop_fill'))
-        .fontSize(20)
-        .fontColor([index % 2 === 0 ? '#2378D8' : AppColors.PRIMARY])
-      Text(this.chineseText(sensor.name, '环境'))
-        .fontSize(AppFont.SIZE_BODY)
-        .fontColor(AppColors.TEXT_PRIMARY)
-        .fontWeight(FontWeight.Bold)
-
-      Row({ space: 4 }) {
-        ForEach([0, 1, 2, 3, 4], (dot: number) => {
-          Column()
-            .layoutWeight(1)
-            .height(dot === index % 5 ? 18 : 10)
-            .borderRadius(5)
-            .backgroundColor(dot <= index % 5 ? '#2378D8' : '#DCEEFF')
-            .opacity(dot <= index % 5 ? 0.72 : 0.42)
-        }, (dot: number) => `${dot}`)
-      }
-      .layoutWeight(1)
-      .height(22)
-      .alignItems(VerticalAlign.Center)
-    }
-    .width('100%')
-    .height(54)
-    .padding({ left: AppSpace.BASE, right: AppSpace.BASE })
-    .borderRadius(AppSpace.RADIUS_BASE)
-    .backgroundColor('#FFFFFF')
-    .alignItems(VerticalAlign.Center)
-  }
-
-  @Builder
-  statsPage() {
-    Column({ space: AppSpace.BASE }) {
-      Column({ space: AppSpace.SM }) {
-        Text('统计')
-          .fontSize(AppFont.SIZE_TITLE_LG)
-          .fontColor(AppColors.TEXT_PRIMARY)
-          .fontWeight(FontWeight.Bold)
-      }
-      .width('100%')
-      .alignItems(HorizontalAlign.Center)
-
-      this.energyPanel()
-
-      if (this.realTempData.length > 0) {
-        this.conditionCard('温度', this.tempMood(), '#2378D8', $r('sys.symbol.thermometer'))
-      } else {
-        this.conditionEmptyCard('温度', '#2378D8', $r('sys.symbol.thermometer'))
-      }
-      if (this.realHumidData.length > 0) {
-        this.conditionCard('湿度', this.humidMood(), '#55B8FF', $r('sys.symbol.drop_fill'))
-      } else {
-        this.conditionEmptyCard('湿度', '#55B8FF', $r('sys.symbol.drop_fill'))
-      }
-      this.backendStatsPanel()
-
-      Column({ space: AppSpace.SM }) {
-        ForEach(this.safeSensors(), (sensor: Sensor, index: number) => {
-          this.sensorRibbon(sensor, index)
-        }, (sensor: Sensor) => sensor.id)
-      }
-      .width('100%')
-      .padding(AppSpace.BASE)
-      .borderRadius(AppSpace.RADIUS_CARD)
-      .backgroundColor('#FFFFFF')
-      .border({ width: 1, color: '#FFFFFF' })
-    }
-    .width('100%')
-  }
-
-  @Builder
-  centerContent() {
-    Column() {
-      if (this.activePage === 0) {
-        this.voicePage()
-      } else {
-        this.statsPage()
-      }
-    }
-    .width('100%')
-    .constraintSize({ maxWidth: 430 })
-    .padding({ top: this.activePage === 0 ? 0 : AppSpace.BASE, bottom: this.activePage === 0 ? 0 : 110 })
+    .layoutWeight(1)
+    .height(56)
+    .backgroundColor(this.activePage === index ? this.accent() : this.panel())
+    .border({ width: 1, color: this.activePage === index ? this.accent() : this.frameTone() })
+    .opacity(this.pressed(`nav_${index}`) ? 0.72 : 1)
+    .scale({ x: this.pressed(`nav_${index}`) ? 0.97 : 1, y: this.pressed(`nav_${index}`) ? 0.97 : 1 })
+    .animation({ duration: TacticalMotion.PRESS, curve: Curve.EaseOut })
+    .onTouch((event: TouchEvent) => this.touchKey(`nav_${index}`, event))
+    .onClick(() => this.switchPage(index))
   }
 
   @Builder
   bottomNav() {
-    Row({ space: AppSpace.SM }) {
-      this.bottomTab(0, '语音', $r('sys.symbol.mic_fill'))
-      this.bottomTab(1, '统计', $r('sys.symbol.drop_fill'))
+    Row({ space: 8 }) {
+      this.navItem(0, '助手', $r('sys.symbol.mic_fill'))
+      this.navItem(1, '数据管理', $r('sys.symbol.clock_fill'))
     }
     .width('100%')
-    .height(74)
-    .padding({ left: AppSpace.SM, right: AppSpace.SM, top: AppSpace.SM, bottom: AppSpace.SM })
-    .borderRadius(26)
-    .backgroundColor(AppColors.BG_CARD)
-    .border({ width: 1, color: AppColors.DIVIDER })
-    .shadow({ radius: 16, color: '#D7ECFF', offsetX: 0, offsetY: 6 })
+    .height(80)
+    .padding({ left: 12, right: 12, top: 8, bottom: 12 })
+    .backgroundColor(this.raised())
+    .border({ width: { top: 1 }, color: this.frameTone() })
   }
 
   build() {
-    Column() {
-      Stack({ alignContent: Alignment.Bottom }) {
-        this.pageBackdrop()
-
-        if (this.activePage === 0) {
-          Column() {
-            this.centerContent()
-          }
-          .width('100%')
-          .height('100%')
-          .padding({ left: AppSpace.BASE, right: AppSpace.BASE })
-          .alignItems(HorizontalAlign.Center)
-        } else {
-          Scroll() {
-            this.centerContent()
-          }
-          .width('100%')
-          .height('100%')
-          .scrollBar(BarState.Off)
-          .padding({ left: AppSpace.BASE, right: AppSpace.BASE })
-        }
-
+    Stack({ alignContent: Alignment.Bottom }) {
+      this.backdrop()
+      Column() {
+        this.topBar()
         Column() {
-          this.bottomNav()
+          if (this.activePage === 0) {
+            this.assistantPage()
+          } else {
+            Scroll() {
+              HistoryPage({ isDark: this.isDark })
+            }
+            .width('100%')
+            .height('100%')
+            .scrollBar(BarState.Off)
+            .edgeEffect(EdgeEffect.Spring)
+          }
         }
+        .layoutWeight(1)
         .width('100%')
-        .padding({ left: AppSpace.BASE, right: AppSpace.BASE, bottom: AppSpace.BASE })
+        .opacity(this.contentVisible ? 1 : 0)
+        .translate({ x: this.contentVisible ? 0 : this.pageDirection * 28 })
+        .animation({ duration: TacticalMotion.PAGE, curve: Curve.EaseOut })
+        this.bottomNav()
       }
       .width('100%')
       .height('100%')
+
+      this.transitionCurtains()
+
+      if (this.booting) {
+        this.bootScreen()
+      }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(AppColors.BG_PAGE)
+    .backgroundColor(this.page())
   }
+}
+
+function activePageLabel(index: number): string {
+  return index === 0 ? '明日家居' : '数据管理';
 }
