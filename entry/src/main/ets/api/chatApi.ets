@@ -1,5 +1,5 @@
 /**
- * 大模型对话 API · 对接设备端网关（DeepSeek）
+ * 大模型对话 API · 对接 A9 网关当前配置的 AI 服务。
  * 策略: HTTP POST /api/chat/send 获取真实回复
  * 流式: 网关返回完整文本，前端模拟逐字打字效果
  */
@@ -13,6 +13,7 @@ const TAG = 'SmartHomeChat';
 let msgIdCounter = 100;
 
 interface ChatSendRequest {
+  message: string;
   messages: ChatPayloadMessage[];
 }
 
@@ -22,9 +23,24 @@ interface ChatPayloadMessage {
 }
 
 interface ChatReplyResponse {
-  reply: string;
+  reply?: string;
   role?: string;
   provider?: string;
+  source?: string;
+  tts_audio?: string;
+  error?: string;
+  code?: number;
+}
+
+interface VoiceInputRequest {
+  audio_base64: string;
+}
+
+interface VoiceInputResponse {
+  text?: string;
+  transcript?: string;
+  message?: string;
+  error?: string;
 }
 
 interface TtsSpeakResponse {
@@ -60,6 +76,50 @@ export interface ChatBackendStatus {
 }
 
 export class ChatApi {
+  /** 获取后端完整回复，由需要自行控制呈现节奏的页面使用。 */
+  static async sendComplete(messages: ChatMessage[]): Promise<ChatMessage> {
+    let currentMessage = '';
+    for (let index = messages.length - 1; index >= 0; index--) {
+      if (messages[index].role === ChatRole.USER && messages[index].content.trim().length > 0) {
+        currentMessage = messages[index].content.trim();
+        break;
+      }
+    }
+    if (!currentMessage) throw new Error('请输入消息');
+    const body: ChatSendRequest = {
+      message: currentMessage,
+      messages: messages.map((message: ChatMessage): ChatPayloadMessage => ({
+        role: message.role,
+        content: message.content
+      }))
+    };
+    hilog.info(DOMAIN, TAG, `sendComplete start, msgs=${messages.length}`);
+
+    const respText = await ChatApi.raceTimeout(Http.post('/api/chat/send', body), 45000);
+    if (!respText) throw new Error('智能服务暂时无法连接，请稍后再试');
+
+    let reply: string = '';
+    let backendError: string = '';
+    try {
+      const resp = JSON.parse(respText) as ChatReplyResponse;
+      backendError = resp.error || '';
+      reply = resp.reply ? resp.reply.trim() : '';
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, `JSON parse failed, raw: ${respText.substring(0, 80)}`);
+      throw new Error('AI 后端返回格式异常');
+    }
+    if (!reply && backendError) throw new Error(backendError);
+    if (!reply) throw new Error('AI 后端没有返回 reply');
+
+    hilog.info(DOMAIN, TAG, `got complete reply, len=${reply.length}`);
+    return {
+      id: 'msg_' + (msgIdCounter++),
+      role: ChatRole.ASSISTANT,
+      content: reply,
+      timestamp: Date.now()
+    };
+  }
+
   /**
    * 发送消息（流式打字效果）
    * 先从网关获取完整回复，再逐字吐出模拟流式
@@ -70,32 +130,9 @@ export class ChatApi {
     onToken: (token: string) => void,
     onDone: (full: ChatMessage) => void
   ): Promise<void> {
-    const body: ChatSendRequest = {
-      messages: messages.map((m: ChatMessage): ChatPayloadMessage => ({
-        role: m.role,
-        content: m.content
-      }))
-    };
     hilog.info(DOMAIN, TAG, `sendStream start, msgs=${messages.length}`);
-
-    const respText = await ChatApi.raceTimeout(Http.post('/api/chat/send', body), 25000);
-    if (!respText) {
-      throw new Error('小智助手暂时无法连接，请稍后再试');
-    }
-
-    let reply: string = '';
-    try {
-      const resp = JSON.parse(respText) as ChatReplyResponse;
-      reply = resp.reply ? resp.reply.trim() : '';
-      hilog.info(DOMAIN, TAG, `got reply: ${reply.substring(0, 40)}`);
-    } catch (e) {
-      hilog.warn(DOMAIN, TAG, `JSON parse failed, raw: ${respText.substring(0, 80)}`);
-      throw new Error('AI 后端返回格式异常');
-    }
-
-    if (!reply) {
-      throw new Error('AI 后端没有返回 reply');
-    }
+    const fullMessage = await ChatApi.sendComplete(messages);
+    const reply = fullMessage.content;
 
     hilog.info(DOMAIN, TAG, `starting typewriter, reply len=${reply.length}`);
     let i = 0;
@@ -103,12 +140,7 @@ export class ChatApi {
       const timer = setInterval(() => {
         if (i >= reply.length) {
           clearInterval(timer);
-          onDone({
-            id: 'msg_' + (msgIdCounter++),
-            role: ChatRole.ASSISTANT,
-            content: reply,
-            timestamp: Date.now()
-          });
+          onDone(fullMessage);
           hilog.info(DOMAIN, TAG, `typewriter done`);
           resolve();
           return;
@@ -150,9 +182,19 @@ export class ChatApi {
     });
   }
 
-  /** 语音输入：没有真实 ASR 返回时不生成默认文字 */
-  static async voiceToText(audioPath: string): Promise<string> {
-    return '';
+  /** 上传 base64 音频并返回后端真实识别文字。 */
+  static async voiceToText(audioBase64: string): Promise<string> {
+    const audio = audioBase64.trim();
+    if (!audio) return '';
+    const body: VoiceInputRequest = { audio_base64: audio };
+    const text = await Http.post('/api/voice/input', body);
+    if (!text) return '';
+    try {
+      const response = JSON.parse(text) as VoiceInputResponse;
+      return (response.text || response.transcript || response.message || '').trim();
+    } catch (e) {
+      return '';
+    }
   }
 
   /** 调用后端 TTS 播报文本 */
@@ -211,6 +253,6 @@ export class ChatApi {
 
   /** 欢迎语 */
   static getWelcome(): string {
-    return '你好，我是智泽家居。你可以直接输入问题，我会让小智助手为你处理。';
+    return '你好，我是明日家居。你可以直接输入问题，我会为你处理。';
   }
 }

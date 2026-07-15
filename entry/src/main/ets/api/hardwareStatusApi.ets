@@ -1,5 +1,5 @@
 /**
- * v5 硬件区域状态 API
+ * v6.1 硬件区域状态 API
  * /api/hardware/status 来自后端缓存，不阻塞实时轮询；离线区域由后端标记 offline。
  */
 import { Http } from './http';

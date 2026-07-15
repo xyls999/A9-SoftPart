@@ -36,7 +36,7 @@ export class UserApi {
       try {
         const status = JSON.parse(remote) as ServerStatus;
         return {
-          host: status.host || Http.getActiveBase().replace('http://', '').replace(':8080', ''),
+          host: Http.getActiveBase().replace('http://', '').replace(':8080', ''),
           port: status.port || 8080,
           isOnline: status.isOnline,
           protocol: status.protocol,

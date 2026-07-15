@@ -1,5 +1,5 @@
 /**
- * A9 v5 真实状态统计。
+ * A9 v6.1 真实状态统计。
  * 单次请求 /api/stats；离线 null 原样保留为“暂无”，不生成默认数据。
  */
 import { Http } from './http';
@@ -112,6 +112,14 @@ export interface BackendStatItem {
   progress: number;
 }
 
+export interface BackendAreaStat {
+  key: string;
+  name: string;
+  ip: string;
+  online: boolean;
+  lastSeen: string;
+}
+
 export interface BackendFeatureStats {
   available: boolean;
   timestamp: string;
@@ -119,7 +127,14 @@ export interface BackendFeatureStats {
   deviceOnline: number;
   deviceOffline: number;
   deviceOnlineRate: number;
+  temperatureValue: number | null;
+  temperatureUnit: string;
+  temperatureOnline: boolean;
+  humidityValue: number | null;
+  humidityUnit: string;
+  humidityOnline: boolean;
   items: BackendStatItem[];
+  areas: BackendAreaStat[];
 }
 
 function numberText(value: number | null | undefined, suffix: string = ''): string {
@@ -197,6 +212,27 @@ function lightsProgress(lights: AllLightsResponse | undefined): number {
   return percent(on, connected);
 }
 
+function appendArea(result: BackendAreaStat[], key: string, area: AreaStateResponse | undefined): void {
+  if (!area) return;
+  result.push({
+    key: key,
+    name: area.name || key,
+    ip: area.ip || '',
+    online: area.online === true,
+    lastSeen: area.last_seen || ''
+  });
+}
+
+function areaDetails(areas: AreaConnectivityResponse | undefined): BackendAreaStat[] {
+  const result: BackendAreaStat[] = [];
+  if (!areas) return result;
+  appendArea(result, 'living_room', areas.living_room);
+  appendArea(result, 'kitchen', areas.kitchen);
+  appendArea(result, 'bathroom', areas.bathroom);
+  appendArea(result, 'bedroom', areas.bedroom);
+  return result;
+}
+
 export class SystemStatsApi {
   static async getFeatureStats(): Promise<BackendFeatureStats> {
     const empty: BackendFeatureStats = {
@@ -206,7 +242,14 @@ export class SystemStatsApi {
       deviceOnline: 0,
       deviceOffline: 0,
       deviceOnlineRate: 0,
-      items: []
+      temperatureValue: null,
+      temperatureUnit: '°C',
+      temperatureOnline: false,
+      humidityValue: null,
+      humidityUnit: '%RH',
+      humidityOnline: false,
+      items: [],
+      areas: []
     };
     const text = await Http.get('/api/stats');
     if (!text) return empty;
@@ -214,6 +257,8 @@ export class SystemStatsApi {
     try {
       const raw = JSON.parse(text) as StatsResponse;
       const devices = raw.device_online_rate;
+      if (!devices || typeof devices.total !== 'number' || typeof devices.online !== 'number' ||
+        typeof devices.offline !== 'number' || typeof devices.rate !== 'number') return empty;
       const temp = raw.living_temperature;
       const humid = raw.living_humidity;
       const smoke = raw.kitchen_smoke;
@@ -261,7 +306,14 @@ export class SystemStatsApi {
         deviceOnline: typeof devices?.online === 'number' ? devices.online : 0,
         deviceOffline: typeof devices?.offline === 'number' ? devices.offline : 0,
         deviceOnlineRate: typeof devices?.rate === 'number' ? devices.rate : 0,
-        items: statsItems
+        temperatureValue: temp?.online === true && typeof temp.value === 'number' ? temp.value : null,
+        temperatureUnit: temp?.unit || '°C',
+        temperatureOnline: temp?.online === true,
+        humidityValue: humid?.online === true && typeof humid.value === 'number' ? humid.value : null,
+        humidityUnit: humid?.unit || '%RH',
+        humidityOnline: humid?.online === true,
+        items: statsItems,
+        areas: areaDetails(raw.area_connectivity)
       };
     } catch (e) {
       return empty;

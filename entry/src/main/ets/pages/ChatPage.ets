@@ -134,7 +134,7 @@ export struct ChatPage {
         .alignItems(HorizontalAlign.Center)
 
         Column({ space: 2 }) {
-          Text('智泽家居')
+          Text('明日家居')
             .fontSize(AppFont.SIZE_TITLE)
             .fontColor(AppColors.TEXT_PRIMARY)
             .fontWeight(FontWeight.Bold)
