@@ -120,6 +120,62 @@ export class DeviceApi {
     return DeviceApi.toggle(id, true, pin);
   }
 
+  static async setBrightness(id: string, value: number): Promise<boolean> {
+    const brightness = Math.max(0, Math.min(100, Math.round(value)));
+    const params: ControlParams = { value: brightness, brightness: brightness };
+    return DeviceApi.control(id, 'set_brightness', params);
+  }
+
+  static async setFanSpeed(id: string, value: number): Promise<boolean> {
+    const speed = Math.max(0, Math.min(100, Math.round(value)));
+    const params: ControlParams = { value: speed, speed: speed };
+    return DeviceApi.control(id, 'set_speed', params);
+  }
+
+  static async setFanDirection(id: string, direction: string, speed: number): Promise<boolean> {
+    const safeSpeed = Math.max(0, Math.min(100, Math.round(speed)));
+    const params: ControlParams = { direction: direction, value: safeSpeed, speed: safeSpeed };
+    return DeviceApi.control(id, 'set_direction', params);
+  }
+
+  static async setAcTemperature(id: string, value: number): Promise<boolean> {
+    const temperature = Math.max(16, Math.min(30, Math.round(value)));
+    const params: ControlParams = { value: temperature, temperature: temperature };
+    return DeviceApi.control(id, 'set_temp', params);
+  }
+
+  static async setAcMode(id: string, mode: string): Promise<boolean> {
+    const params: ControlParams = { mode: mode };
+    return DeviceApi.control(id, 'set_mode', params);
+  }
+
+  static async setAcFan(id: string, mode: string): Promise<boolean> {
+    const params: ControlParams = { mode: mode, fan_speed: mode };
+    return DeviceApi.control(id, 'set_fan', params);
+  }
+
+  static async setAcSwing(id: string, enabled: boolean): Promise<boolean> {
+    const mode = enabled ? 'on' : 'off';
+    const params: ControlParams = { mode: mode, swing: mode };
+    return DeviceApi.control(id, 'set_swing', params);
+  }
+
+  static async applyAcProfile(id: string, profile: string): Promise<boolean> {
+    const params: ControlParams = { profile: profile };
+    return DeviceApi.control(id, 'preset', params);
+  }
+
+  static async setCurtainPosition(id: string, value: number): Promise<boolean> {
+    const position = Math.max(0, Math.min(100, Math.round(value)));
+    const params: ControlParams = { value: position, position: position };
+    return DeviceApi.control(id, 'set_position', params);
+  }
+
+  static async stopCurtain(id: string): Promise<boolean> {
+    const params: ControlParams = {};
+    return DeviceApi.control(id, 'stop', params);
+  }
+
   /** 添加设备 */
   static async addDevice(device: Device): Promise<boolean> {
     const body: AddDeviceRequestBody = {

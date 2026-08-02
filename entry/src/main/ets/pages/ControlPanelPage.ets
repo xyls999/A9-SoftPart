@@ -3,7 +3,8 @@
  * 保留原有 ChatApi，主题和页面切换仅改变前端表现。
  */
 import { ChatApi } from '../api/chatApi';
-import { ChatMessage, ChatRole } from '../api/types';
+import { ChartData, ChatMessage, ChatRole } from '../api/types';
+import { ChatChartPanel } from '../components/ChatChartPanel';
 import { HistoryPage } from './HistoryPage';
 import { TacticalMotion, TacticalTheme } from '../theme/TacticalTheme';
 
@@ -25,6 +26,9 @@ export struct ControlPanelPage {
   @State themeProgress: number = 0;
   @State themeStage: number = 0;
   @State targetDark: boolean = false;
+  @State sourceDark: boolean = true;
+  @State themeGradientAngle: number = 34;
+  @State themeSweep: number = 580;
   @State themeClosing: boolean = false;
   @State pageDirection: number = 1;
   @State pageSwitching: boolean = false;
@@ -200,12 +204,19 @@ export struct ControlPanelPage {
 
   private toggleTheme(): void {
     if (this.themeSwitching || this.pageSwitching) return;
+    this.sourceDark = this.isDark;
     this.targetDark = !this.isDark;
+    this.themeGradientAngle = this.targetDark ? 34 : 62;
+    this.themeSweep = this.targetDark ? 580 : -580;
     this.themeSwitching = true;
     this.startMotionLoop();
     this.themeClosing = false;
     this.themeStage = 0;
     this.themeProgress = 4;
+    this.later(32, () => {
+      this.themeGradientAngle = this.targetDark ? 62 : 34;
+      this.themeSweep = this.targetDark ? -580 : 580;
+    });
     this.later(180, () => { this.themeStage = 1; this.themeProgress = 16; });
     this.later(440, () => { this.themeStage = 2; this.themeProgress = 36; });
     this.later(700, () => { this.isDark = this.targetDark; this.themeProgress = 58; });
@@ -243,12 +254,18 @@ export struct ControlPanelPage {
 
   async send(): Promise<void> {
     const text = this.inputText.trim();
-    if (!text || this.isResponding) return;
+    if (!text) return;
+    await this.submitMessage(text, '');
+  }
+
+  private async submitMessage(text: string, context: string): Promise<void> {
+    if (!text.trim() || this.isResponding) return;
     const userMessage: ChatMessage = {
       id: `msg_${this.msgId++}`,
       role: ChatRole.USER,
-      content: text,
-      timestamp: Date.now()
+      content: text.trim(),
+      timestamp: Date.now(),
+      context: context
     };
     this.messages = this.safeMessages().concat([userMessage]);
     this.inputText = '';
@@ -258,6 +275,7 @@ export struct ControlPanelPage {
     const thinkingStartedAt = Date.now();
     let replyContent: string = '';
     let replyTimestamp: number = Date.now();
+    let replyChartData: ChartData | undefined = undefined;
     let requestFailed: boolean = false;
     this.isResponding = true;
     this.startThinkingAnimation();
@@ -274,6 +292,7 @@ export struct ControlPanelPage {
       const finalMessage = await ChatApi.sendComplete(this.safeMessages().slice(0, -1));
       replyContent = finalMessage.content;
       replyTimestamp = finalMessage.timestamp;
+      replyChartData = finalMessage.chartData;
     } catch (e) {
       const error = e as Error;
       requestFailed = true;
@@ -291,7 +310,8 @@ export struct ControlPanelPage {
           role: ChatRole.ASSISTANT,
           content: replyContent,
           timestamp: replyTimestamp,
-          isStreaming: false
+          isStreaming: false,
+          chartData: replyChartData
         } : message
       );
       await this.wait(24);
@@ -300,6 +320,15 @@ export struct ControlPanelPage {
       this.isResponding = false;
       this.scrollToBottom();
     }
+  }
+
+  private async analyzeChart(title: string, context: string): Promise<void> {
+    if (this.isResponding || !context.trim()) return;
+    this.activePage = 0;
+    this.contentVisible = true;
+    this.pageSwitching = false;
+    this.inputText = '';
+    await this.submitMessage(`请分析“${title}”图表，概括趋势、异常和建议。`, context);
   }
 
   async startVoice(): Promise<void> {
@@ -388,12 +417,6 @@ export struct ControlPanelPage {
 
         Column().width(1).height(144).backgroundColor(TacticalTheme.gridStrong(this.isDark)).opacity(0.72)
         Column().width(144).height(1).backgroundColor(TacticalTheme.gridStrong(this.isDark)).opacity(0.72)
-        Column().width(138).height(2).backgroundColor(TacticalTheme.scanline(this.isDark))
-          .translate({ y: -66 + progress * 1.32 })
-          .animation({ duration: 480, curve: Curve.EaseInOut })
-
-        Column().width(24).height(4).backgroundColor(this.accent()).position({ x: 0, y: 0 })
-          .translate({ x: progress < 30 ? -18 : 0 }).animation({ duration: 380, curve: Curve.EaseOut })
         Column().width(4).height(24).backgroundColor(this.accent()).position({ x: 140, y: 120 })
           .translate({ y: progress < 58 ? 18 : 0 }).animation({ duration: 380, curve: Curve.EaseOut })
         Column().width(9).height(9).backgroundColor(this.text()).position({ x: 4, y: 132 })
@@ -425,6 +448,55 @@ export struct ControlPanelPage {
       .alignItems(HorizontalAlign.Center)
     }
     .alignItems(HorizontalAlign.Center)
+  }
+
+  @Builder
+  themeCore() {
+    Column({ space: 20 }) {
+      Stack({ alignContent: Alignment.Center }) {
+        Circle({ width: 170, height: 170 })
+          .fill(Color.Transparent)
+          .stroke(TacticalTheme.gridStrong(this.targetDark))
+          .strokeWidth(1)
+          .opacity(0.52)
+          .rotate({ angle: this.motionTick * 2.2 })
+          .animation({ duration: 120, curve: Curve.Linear })
+
+        Column().width(138).height(138)
+          .border({ width: 1, color: TacticalTheme.borderStrong(this.targetDark) })
+          .rotate({ angle: 45 - this.motionTick * 2.8 })
+          .opacity(0.7)
+          .animation({ duration: 120, curve: Curve.Linear })
+
+        Circle({ width: 104, height: 104 })
+          .fill(TacticalTheme.panelRaised(this.targetDark))
+          .stroke(TacticalTheme.accent(this.targetDark))
+          .strokeWidth(1)
+
+        SymbolGlyph(this.targetDark ? $r('sys.symbol.moon_fill') : $r('sys.symbol.sun_max'))
+          .fontSize(44)
+          .fontColor([TacticalTheme.accent(this.targetDark)])
+          .opacity(this.themeProgress < 34 ? 0.18 : 1)
+          .scale({ x: this.themeProgress < 34 ? 0.72 : 1, y: this.themeProgress < 34 ? 0.72 : 1 })
+          .rotate({ angle: this.targetDark ? this.themeProgress * 0.8 - 70 : 70 - this.themeProgress * 0.7 })
+          .animation({ duration: 420, curve: Curve.EaseOut })
+
+        Circle({ width: 7, height: 7 }).fill(TacticalTheme.accent(this.targetDark))
+          .translate({ x: -62, y: this.themeProgress < 50 ? 22 : -28 })
+          .animation({ duration: 520, curve: Curve.EaseInOut })
+        Circle({ width: 4, height: 4 }).fill(TacticalTheme.text(this.targetDark))
+          .translate({ x: 58, y: this.themeProgress < 68 ? -18 : 32 })
+          .animation({ duration: 520, curve: Curve.EaseInOut })
+      }.width(176).height(176)
+
+      Column({ space: 5 }) {
+        Text(this.targetDark ? '静夜' : '明昼')
+          .fontSize(28).fontFamily('HarmonyOS Sans SC').fontWeight(FontWeight.Bolder)
+          .fontColor(TacticalTheme.text(this.targetDark))
+        Text(this.targetDark ? '夜色归于安静' : '晨光进入居所')
+          .fontSize(11).fontColor(TacticalTheme.textSecondary(this.targetDark))
+      }.alignItems(HorizontalAlign.Center)
+    }.alignItems(HorizontalAlign.Center)
   }
 
   @Builder
@@ -496,18 +568,51 @@ export struct ControlPanelPage {
     Stack() {
       if (this.pageSwitching || this.themeSwitching) {
         Stack() {
-          Column().width('100%').height('100%').backgroundColor(this.page())
+          if (this.themeSwitching) {
+            Column().width('100%').height('100%')
+              .linearGradient({
+                angle: this.themeGradientAngle,
+                colors: [[TacticalTheme.page(this.targetDark), 0],
+                  [TacticalTheme.structural(this.targetDark), 0.24],
+                  [TacticalTheme.accentSoft(this.targetDark), 0.48],
+                  [TacticalTheme.structural(this.targetDark), 0.74],
+                  [TacticalTheme.page(this.targetDark), 1]]
+              })
+              .animation({ duration: 1480, curve: Curve.EaseInOut })
 
-          Row() {
-            ForEach([0, 1, 2], (_: number, index: number) => {
-              Column().layoutWeight(1).height('100%')
-                .backgroundColor(index === 1 ? TacticalTheme.structural(this.isDark) : this.page())
-                .border({ width: { right: index < 2 ? 1 : 0 }, color: TacticalTheme.grid(this.isDark) })
-                .translate({ y: (this.pageSwitching ? this.switchProgress : this.themeProgress) < (index + 1) * 18 ?
-                  (index % 2 === 0 ? -32 : 32) : 0 })
-                .animation({ duration: 460, curve: Curve.EaseOut })
-            }, (_: number, index: number) => `${index}`)
-          }.width('100%').height('100%').opacity(0.34)
+            Column().width('100%').height('100%')
+              .backgroundColor(TacticalTheme.page(this.sourceDark))
+              .opacity(this.themeProgress < 58 ? 1 : 0)
+              .animation({ duration: 460, curve: Curve.EaseInOut })
+
+            Column().width('155%').height('140%')
+              .linearGradient({
+                angle: 44,
+                colors: [[TacticalTheme.page(this.targetDark), 0],
+                  [TacticalTheme.structural(this.targetDark), 0.27],
+                  [TacticalTheme.accentSoft(this.targetDark), 0.52],
+                  [TacticalTheme.page(this.targetDark), 0.8],
+                  [TacticalTheme.structural(this.targetDark), 1]]
+              })
+              .opacity(0.98)
+              .rotate({ angle: -36 })
+              .translate({ x: this.themeSweep, y: -this.themeSweep * 1.15 })
+              .animation({ duration: 1480, curve: Curve.EaseInOut })
+          } else {
+            Column().width('100%').height('100%').backgroundColor(this.page())
+          }
+
+          if (this.pageSwitching) {
+            Row() {
+              ForEach([0, 1, 2], (_: number, index: number) => {
+                Column().layoutWeight(1).height('100%')
+                  .backgroundColor(index === 1 ? TacticalTheme.structural(this.isDark) : this.page())
+                  .border({ width: { right: index < 2 ? 1 : 0 }, color: TacticalTheme.grid(this.isDark) })
+                  .translate({ y: this.switchProgress < (index + 1) * 18 ? (index % 2 === 0 ? -32 : 32) : 0 })
+                  .animation({ duration: 460, curve: Curve.EaseOut })
+              }, (_: number, index: number) => `${index}`)
+            }.width('100%').height('100%').opacity(0.34)
+          }
 
           Row() {
             Column({ space: 1 }) {
@@ -523,13 +628,13 @@ export struct ControlPanelPage {
           .width('100%').padding({ left: 26, right: 22, top: 24 })
 
           Column({ space: 20 }) {
-            this.loadingCore(this.pageSwitching ? this.switchProgress : this.themeProgress,
-              this.themeSwitching ? (this.targetDark ? '静夜' : '明昼') : this.targetLabel(),
-              this.themeSwitching ? '正在转换界面光影' : '正在整理页面内容',
-              this.themeSwitching ? (this.targetDark ? $r('sys.symbol.moon_fill') : $r('sys.symbol.sun_max')) :
-              this.targetPage === 0 ? $r('sys.symbol.mic_fill') : $r('sys.symbol.clock_fill'))
-            Text(this.themeSwitching ? this.themeLabel() : this.switchLabel())
-              .fontSize(11).fontWeight(FontWeight.Bold).fontColor(this.secondary())
+            if (this.themeSwitching) {
+              this.themeCore()
+            } else {
+              this.loadingCore(this.switchProgress, this.targetLabel(), '正在整理页面内容',
+                this.targetPage === 0 ? $r('sys.symbol.mic_fill') : $r('sys.symbol.clock_fill'))
+              Text(this.switchLabel()).fontSize(11).fontWeight(FontWeight.Bold).fontColor(this.secondary())
+            }
           }
           .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
 
@@ -634,7 +739,8 @@ export struct ControlPanelPage {
       Blank()
 
       Stack() {
-        Column().width(48).height(48).backgroundColor(this.pressed('theme') ? TacticalTheme.accentSoft(this.isDark) : this.panel())
+        Column().width(48).height(48)
+          .backgroundColor(this.pressed('theme') ? TacticalTheme.accentSoft(this.isDark) : this.panel())
           .border({ width: 1, color: this.accent() })
         SymbolGlyph(this.isDark ? $r('sys.symbol.sun_max') : $r('sys.symbol.moon_fill'))
           .fontSize(21)
@@ -739,6 +845,10 @@ export struct ControlPanelPage {
         .lineHeight(24)
         .fontColor(this.text())
         .width('100%')
+
+      if (message.chartData && message.chartData.charts && message.chartData.charts.length > 0) {
+        ChatChartPanel({ chartData: message.chartData, isDark: this.isDark })
+      }
 
       Row() {
         Column().layoutWeight(1).height(1).backgroundColor(TacticalTheme.grid(this.isDark))
@@ -940,7 +1050,10 @@ export struct ControlPanelPage {
             this.assistantPage()
           } else {
             Scroll() {
-              HistoryPage({ isDark: this.isDark })
+              HistoryPage({
+                isDark: this.isDark,
+                onAnalyzeChart: (title: string, context: string): void => { this.analyzeChart(title, context); }
+              })
             }
             .width('100%')
             .height('100%')

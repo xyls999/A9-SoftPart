@@ -84,7 +84,7 @@ export struct ChatPage {
           this.messages = this.messages.map((m: ChatMessage): ChatMessage =>
             m.id === assistantId ? {
               id: newId, role: ChatRole.ASSISTANT, content: finalMsg.content,
-              timestamp: finalMsg.timestamp, isStreaming: false
+              timestamp: finalMsg.timestamp, isStreaming: false, chartData: finalMsg.chartData
             } : m
           );
           ChatApi.speak(finalMsg.content);

@@ -53,6 +53,14 @@ export interface Device {
 export interface ControlParams {
   value?: number;
   mode?: string;
+  temperature?: number;
+  brightness?: number;
+  speed?: number;
+  direction?: string;
+  position?: number;
+  fan_speed?: string;
+  swing?: string;
+  profile?: string;
 }
 
 // ============ 传感器 ============
@@ -132,6 +140,64 @@ export enum ChatRole {
   ASSISTANT = 'assistant'
 }
 
+export interface ChartAxis {
+  type?: string;
+  data?: string[];
+}
+
+export interface ChartDatum {
+  name?: string;
+  value?: number | number[];
+}
+
+export interface ChartRadarIndicator {
+  name?: string;
+  max?: number;
+}
+
+export interface ChartRadar {
+  indicator?: ChartRadarIndicator[];
+}
+
+export interface ChartSeries {
+  name?: string;
+  type?: string;
+  smooth?: boolean;
+  areaStyle?: Object;
+  radius?: string[];
+  data?: Array<number | string | ChartDatum>;
+}
+
+export interface ChartGaugeData {
+  date?: string;
+  total_requests?: number;
+  total_chat?: number;
+  total_device_ops?: number;
+  total_security_events?: number;
+  online_devices?: number;
+  total_devices?: number;
+  online_sensors?: number;
+  total_sensors?: number;
+}
+
+export interface ChartConfig {
+  id?: string;
+  title?: string;
+  type?: string;
+  xAxis?: ChartAxis;
+  radar?: ChartRadar;
+  series?: ChartSeries[];
+  data?: ChartGaugeData;
+}
+
+export interface ChartData {
+  chart_type?: string;
+  keyword?: string;
+  kimi_used?: boolean;
+  days?: number;
+  charts?: ChartConfig[];
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -139,6 +205,10 @@ export interface ChatMessage {
   timestamp: number;
   /** 是否正在流式输出 */
   isStreaming?: boolean;
+  /** 仅发送给 AI 的结构化上下文，不在对话气泡中显示。 */
+  context?: string;
+  /** 后端随回复返回的 ECharts 兼容图表。 */
+  chartData?: ChartData;
 }
 
 // ============ 用户与服务端 ============

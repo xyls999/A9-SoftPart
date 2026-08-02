@@ -4,7 +4,21 @@
  */
 import { AlertMessage, Device, DeviceStatus, Sensor, SensorType } from '../api/types';
 import { DeviceApi } from '../api/deviceApi';
-import { EdgeAuthStatus, LogApi, SecurityLogStats } from '../api/logApi';
+import {
+  AiConversationFeed,
+  AiConversationLog,
+  DailyLogRecord,
+  EdgeAuthStatus,
+  LogChart,
+  LogChartResponse,
+  LogGaugeData,
+  LogApi,
+  OperationFeed,
+  OperationLogRecord,
+  SecurityLogStats,
+  TodayLogSnapshot
+} from '../api/logApi';
+import { AiMcpApi, AiMcpTool } from '../api/aiMcpApi';
 import { SensorApi } from '../api/sensorApi';
 import { BackendAreaStat, BackendFeatureStats, BackendStatItem, SystemStatsApi } from '../api/systemStatsApi';
 import { TacticalMotion, TacticalSpace, TacticalTheme } from '../theme/TacticalTheme';
@@ -12,6 +26,7 @@ import { TacticalMotion, TacticalSpace, TacticalTheme } from '../theme/TacticalT
 @Component
 export struct HistoryPage {
   @Prop isDark: boolean = true;
+  onAnalyzeChart: (title: string, context: string) => void = (_: string, __: string): void => {};
   @State activeSection: number = 0;
   @State devices: Device[] = [];
   @State alerts: AlertMessage[] = [];
@@ -49,9 +64,40 @@ export struct HistoryPage {
   @State historyAvailable: boolean = false;
   @State isLoading: boolean = true;
   @State pressedSection: number = -1;
+  @State dailyLogs: DailyLogRecord[] = [];
+  @State todayLog: TodayLogSnapshot = { available: false, today: null, realtime: null };
+  @State operationFeed: OperationFeed = { available: false, total: 0, limit: 100, operations: [] };
+  @State dailyExpanded: boolean = false;
+  @State todayExpanded: boolean = false;
+  @State detailedLogsExpanded: boolean = false;
+  @State dangerLogsExpanded: boolean = false;
+  @State normalLogsExpanded: boolean = false;
+  @State aiLogsExpanded: boolean = false;
+  @State operationsExpanded: boolean = false;
+  @State operationResultFilter: number = 0;
+  @State operationSourceFilter: number = 0;
+  @State expandedOperationKey: string = '';
+  @State aiConversationFeed: AiConversationFeed = {
+    available: false, source: '/api/ai/context', logs: []
+  };
+  @State dailyChartResponse: LogChartResponse = {
+    available: false, chartType: '', keyword: '七日统计', kimiUsed: false, days: 7, charts: [], raw: ''
+  };
+  @State todayChartResponse: LogChartResponse = {
+    available: false, chartType: '', keyword: '今日实时', kimiUsed: false, days: 7, charts: [], raw: ''
+  };
+  @State mcpTools: AiMcpTool[] = [];
+  private logRefreshTimer: number = -1;
+  private refreshingLogs: boolean = false;
 
   aboutToAppear(): void {
     this.loadData();
+    this.logRefreshTimer = setInterval(() => { this.refreshLogData(); }, 10000);
+  }
+
+  aboutToDisappear(): void {
+    if (this.logRefreshTimer !== -1) clearInterval(this.logRefreshTimer);
+    this.logRefreshTimer = -1;
   }
 
   async loadData(): Promise<void> {
@@ -61,6 +107,13 @@ export struct HistoryPage {
     const sensorRequest = SensorApi.getSensorSnapshot();
     const historyRequest = SensorApi.getTempHumidHistory();
     const statsRequest = SystemStatsApi.getFeatureStats();
+    const dailyRequest = LogApi.getDaily(7);
+    const todayRequest = LogApi.getToday();
+    const operationRequest = LogApi.getOperationFeed(100);
+    const aiConversationRequest = LogApi.getAiConversationFeed(20);
+    const dailyChartRequest = LogApi.getChart('七日统计', 7);
+    const todayChartRequest = LogApi.getChart('今日实时', 7);
+    const toolRequest = AiMcpApi.listTools();
 
     const deviceSnapshot = await deviceRequest;
     this.devices = deviceSnapshot.devices;
@@ -84,7 +137,44 @@ export struct HistoryPage {
     this.historyAvailable = history.available;
 
     this.stats = await statsRequest;
+    this.dailyLogs = await dailyRequest;
+    this.todayLog = await todayRequest;
+    this.reconcileDailyWithToday();
+    this.operationFeed = await operationRequest;
+    this.aiConversationFeed = await aiConversationRequest;
+    this.dailyChartResponse = await dailyChartRequest;
+    this.todayChartResponse = await todayChartRequest;
+    this.mcpTools = await toolRequest;
     this.isLoading = false;
+  }
+
+  private async refreshLogData(): Promise<void> {
+    if (this.refreshingLogs) return;
+    this.refreshingLogs = true;
+    try {
+      const snapshotRequest = LogApi.getSnapshot();
+      const dailyRequest = LogApi.getDaily(7);
+      const todayRequest = LogApi.getToday();
+      const operationRequest = LogApi.getOperationFeed(100);
+      const aiConversationRequest = LogApi.getAiConversationFeed(20);
+      const dailyChartRequest = LogApi.getChart('七日统计', 7);
+      const todayChartRequest = LogApi.getChart('今日实时', 7);
+      const snapshot = await snapshotRequest;
+      this.alerts = snapshot.alerts;
+      this.securityStats = snapshot.securityStats;
+      this.authStatus = snapshot.authStatus;
+      this.logsAvailable = snapshot.available;
+      this.logsComplete = snapshot.complete;
+      this.dailyLogs = await dailyRequest;
+      this.todayLog = await todayRequest;
+      this.reconcileDailyWithToday();
+      this.operationFeed = await operationRequest;
+      this.aiConversationFeed = await aiConversationRequest;
+      this.dailyChartResponse = await dailyChartRequest;
+      this.todayChartResponse = await todayChartRequest;
+    } finally {
+      this.refreshingLogs = false;
+    }
   }
 
   private selectSection(index: number): void {
@@ -203,6 +293,221 @@ export struct HistoryPage {
     const sensor = this.sensorOf(type);
     if (!sensor) return '--';
     return `${sensor.current.value}${sensor.current.unit || fallbackUnit}`;
+  }
+
+  private dailyMax(): number {
+    let max = 1;
+    for (const record of this.dailyLogs) {
+      max = Math.max(max, record.total_requests, record.total_chat, record.total_device_ops,
+        record.total_security_events);
+    }
+    return max;
+  }
+
+  private dailyBarHeight(value: number): number {
+    return Math.max(4, Math.min(82, value / this.dailyMax() * 82));
+  }
+
+  private dailyBackendChart(): LogChart | null {
+    for (const chart of this.dailyChartResponse.charts) if (chart.id === 'daily_bar') return chart;
+    return this.dailyChartResponse.charts.length > 0 ? this.dailyChartResponse.charts[0] : null;
+  }
+
+  private dailyCategories(): string[] {
+    const chart = this.dailyBackendChart();
+    return chart ? chart.categories : [];
+  }
+
+  private dailySeries(name: string): number[] {
+    const chart = this.dailyBackendChart();
+    if (!chart) return [];
+    for (const series of chart.series) if (series.name === name) return series.data;
+    return [];
+  }
+
+  private chartNumber(values: number[], index: number): number {
+    return index >= 0 && index < values.length ? values[index] : 0;
+  }
+
+  private backendChartMax(): number {
+    let max = 1;
+    const request = this.dailySeries('请求数');
+    const chat = this.dailySeries('对话数');
+    const operation = this.dailySeries('设备操作');
+    for (const value of request) max = Math.max(max, value);
+    for (const value of chat) max = Math.max(max, value);
+    for (const value of operation) max = Math.max(max, value);
+    return max;
+  }
+
+  private backendBarHeight(value: number): number {
+    return Math.max(4, Math.min(82, value / this.backendChartMax() * 82));
+  }
+
+  private todayGaugeData(): LogGaugeData {
+    for (const chart of this.todayChartResponse.charts) {
+      if (chart.id === 'today_gauge' && chart.gauge) return chart.gauge;
+    }
+    return {
+      date: '', totalRequests: 0, totalChat: 0, totalDeviceOps: 0, totalSecurityEvents: 0,
+      onlineDevices: 0, totalDevices: 0, onlineSensors: 0, totalSensors: 0
+    };
+  }
+
+  private reconcileDailyWithToday(): void {
+    if (!this.todayLog.available || !this.todayLog.today) return;
+    const today = this.todayLog.today;
+    const records: DailyLogRecord[] = [];
+    let replaced = false;
+    for (const record of this.dailyLogs) {
+      if (record.log_date === today.log_date) {
+        records.push(today);
+        replaced = true;
+      } else {
+        records.push(record);
+      }
+    }
+    if (!replaced) records.push(today);
+    this.dailyLogs = records.length > 7 ? records.slice(records.length - 7) : records;
+  }
+
+  private dailyChartContext(): string {
+    if (this.dailyChartResponse.available && this.dailyChartResponse.raw.length > 0) {
+      return `数据来源：GET /api/log/chart?type=七日统计&days=7\n` +
+        `ECharts配置：${this.dailyChartResponse.raw}\n前端校验摘要：${this.dailyAnalysisSummary()}`;
+    }
+    const lines: string[] = [
+      '图表名称：最近7日日志汇总',
+      '图表类型：按日期分组的多序列柱状图',
+      '序列：请求总数、AI消息条数、设备操作、安全事件',
+      `前端校验摘要：${this.dailyAnalysisSummary()}`
+    ];
+    for (const record of this.dailyLogs) {
+      lines.push(`${record.log_date} | 请求=${record.total_requests} | AI消息=${record.total_chat} | ` +
+        `设备操作=${record.total_device_ops} | 安全事件=${record.total_security_events} | ` +
+        `设备在线峰值=${record.devices_online_peak} | 活跃传感器=${record.sensors_active}`);
+    }
+    return lines.join('\n');
+  }
+
+  private dailyAnalysisSummary(): string {
+    if (this.dailyChartResponse.available && this.dailyCategories().length > 0) {
+      const labels = this.dailyCategories();
+      const requests = this.dailySeries('请求数');
+      const chats = this.dailySeries('对话数');
+      const operations = this.dailySeries('设备操作');
+      const latestIndex = labels.length - 1;
+      const latestRequests = this.chartNumber(requests, latestIndex);
+      const latestChats = this.chartNumber(chats, latestIndex);
+      const latestOperations = this.chartNumber(operations, latestIndex);
+      const change = latestRequests - this.chartNumber(requests, 0);
+      const trend = labels.length <= 1 ? '当前只有一天数据，暂不能判断跨日趋势' :
+        change > 0 ? `请求较首日增加${change}` : change < 0 ? `请求较首日减少${Math.abs(change)}` : '请求量与首日持平';
+      return `最新日期${labels[latestIndex]}共有${latestRequests}次请求、${latestChats}条AI消息和` +
+        `${latestOperations}次设备操作；${trend}`;
+    }
+    if (this.dailyLogs.length === 0) return '暂无每日汇总，无法判断趋势';
+    const latest = this.dailyLogs[this.dailyLogs.length - 1];
+    const requestTotal = Math.max(1, latest.total_requests);
+    const chatRate = Math.round(latest.total_chat / requestTotal * 100);
+    let trend = '目前只有一天汇总，暂不能判断跨日趋势';
+    if (this.dailyLogs.length > 1) {
+      const first = this.dailyLogs[0];
+      const change = latest.total_requests - first.total_requests;
+      trend = change > 0 ? `请求较首日增加${change}` : change < 0 ? `请求较首日减少${Math.abs(change)}` : '请求量与首日持平';
+    }
+    return `最新日期${latest.log_date}共有${latest.total_requests}次请求、${latest.total_chat}条AI消息、` +
+      `${latest.total_device_ops}次设备操作和${latest.total_security_events}次安全事件；` +
+      `AI消息约占请求${chatRate}%；${trend}。安全事件需要结合操作失败记录继续排查`;
+  }
+
+  private todayChartContext(): string {
+    if (this.todayChartResponse.available && this.todayChartResponse.raw.length > 0) {
+      return `数据来源：GET /api/log/chart?type=今日实时&days=7\n` +
+        `ECharts配置：${this.todayChartResponse.raw}\n前端校验摘要：${this.todayAnalysisSummary()}`;
+    }
+    if (!this.todayLog.available || !this.todayLog.today) return '今日日志接口暂无数据';
+    const today = this.todayLog.today;
+    const realtime = this.todayLog.realtime;
+    let context = `图表名称：今日日志与实时状态\n前端校验摘要：${this.todayAnalysisSummary()}\n` +
+      `日期=${today.log_date}\n请求=${today.total_requests}\n` +
+      `AI消息=${today.total_chat}\n设备操作=${today.total_device_ops}\n安全事件=${today.total_security_events}\n` +
+      `设备在线峰值=${today.devices_online_peak}\n活跃传感器=${today.sensors_active}`;
+    if (realtime) {
+      context += `\n当前在线设备=${realtime.online_devices}/${realtime.total_devices}` +
+        `\n当前在线传感器=${realtime.online_sensors}/${realtime.total_sensors}` +
+        `\nWebSocket客户端=${realtime.ws_clients}\nMQTT客户端=${realtime.mqtt_clients}`;
+    }
+    return context;
+  }
+
+  private todayAnalysisSummary(): string {
+    if (this.todayChartResponse.available && this.todayGaugeData().date.length > 0) {
+      const gauge = this.todayGaugeData();
+      return `今日${gauge.date}累计${gauge.totalRequests}次请求、${gauge.totalChat}条AI消息、` +
+        `${gauge.totalDeviceOps}次设备操作和${gauge.totalSecurityEvents}次安全事件；` +
+        `当前设备在线${gauge.onlineDevices}/${gauge.totalDevices}，` +
+        `传感器在线${gauge.onlineSensors}/${gauge.totalSensors}`;
+    }
+    if (!this.todayLog.available || !this.todayLog.today) return '今日日志暂无数据';
+    const today = this.todayLog.today;
+    let online = '实时连接状态未上报';
+    if (this.todayLog.realtime) {
+      online = `当前设备在线${this.todayLog.realtime.online_devices}/${this.todayLog.realtime.total_devices}，` +
+        `传感器在线${this.todayLog.realtime.online_sensors}/${this.todayLog.realtime.total_sensors}`;
+    }
+    return `今日累计${today.total_requests}次请求、${today.total_chat}条AI消息、` +
+      `${today.total_device_ops}次设备操作和${today.total_security_events}次安全事件；${online}。` +
+      `若设备或传感器在线数为0，应优先检查供电与局域网连接`;
+  }
+
+  private filteredOperations(): OperationLogRecord[] {
+    const result: OperationLogRecord[] = [];
+    for (const operation of this.operationFeed.operations) {
+      const success = operation.result === 'ok' || operation.result === 'success';
+      if (this.operationResultFilter === 1 && !success) continue;
+      if (this.operationResultFilter === 2 && success) continue;
+      if (this.operationSourceFilter === 1 && operation.source !== 'api') continue;
+      if (this.operationSourceFilter === 2 && operation.source !== 'scene') continue;
+      if (this.operationSourceFilter === 3 && operation.source !== 'local') continue;
+      result.push(operation);
+      if (result.length >= 50) break;
+    }
+    return result;
+  }
+
+  private operationTimeText(operation: OperationLogRecord): string {
+    if (operation.timestampMs <= 0) return operation.timestamp || '--';
+    const date = new Date(operation.timestampMs);
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    const hour = `${date.getHours()}`.padStart(2, '0');
+    const minute = `${date.getMinutes()}`.padStart(2, '0');
+    const second = `${date.getSeconds()}`.padStart(2, '0');
+    return `${month}-${day} ${hour}:${minute}:${second}`;
+  }
+
+  private actionLabel(action: string): string {
+    if (action === 'toggle') return '开关';
+    if (action === 'set_brightness') return '亮度';
+    if (action === 'set_temp' || action === 'set_temperature') return '温度';
+    if (action === 'set_mode') return '模式';
+    if (action === 'set_fan' || action === 'set_speed') return '风速';
+    if (action === 'set_swing') return '摆风';
+    if (action === 'set_position') return '位置';
+    if (action === 'stop') return '停止';
+    if (action === 'scene_toggle') return '场景联动';
+    return action;
+  }
+
+  private deviceCapabilityText(deviceId: string): string {
+    const labels: string[] = [];
+    for (const tool of this.mcpTools) {
+      if (tool.deviceId !== deviceId) continue;
+      const label = this.actionLabel(tool.action);
+      if (labels.indexOf(label) < 0) labels.push(label);
+    }
+    return labels.length > 0 ? `AI可调用：${labels.join(' · ')}` : '后端未声明可调用动作';
   }
 
   private activeInterfaceState(): number {
@@ -374,14 +679,392 @@ export struct HistoryPage {
   }
 
   @Builder
+  disclosureHeader(title: string, subtitle: string, expanded: boolean, onClick: () => void) {
+    Row({ space: 12 }) {
+      Column().width(3).height(34).backgroundColor(this.accent())
+      Column({ space: 3 }) {
+        Text(title).fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.text())
+        Text(subtitle).fontSize(10).fontColor(this.muted()).maxLines(1)
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      SymbolGlyph($r('sys.symbol.chevron_right'))
+        .fontSize(17)
+        .fontColor([this.accent()])
+        .rotate({ angle: expanded ? 90 : 0 })
+    }
+    .width('100%')
+    .height(58)
+    .padding({ left: 12, right: 12 })
+    .backgroundColor(this.panel())
+    .border({ width: 1, color: this.frameTone() })
+    .alignItems(VerticalAlign.Center)
+    .onClick(onClick)
+  }
+
+  @Builder
+  chartLegend(label: string, color: string) {
+    Row({ space: 5 }) {
+      Column().width(8).height(8).backgroundColor(color)
+      Text(label).fontSize(9).fontColor(this.muted())
+    }
+  }
+
+  @Builder
+  analyzeButton(title: string, context: string) {
+    Row({ space: 8 }) {
+      SymbolGlyph($r('sys.symbol.paperplane_fill')).fontSize(16).fontColor([TacticalTheme.inverse(this.isDark)])
+      Text('发送到明日家居分析').fontSize(12).fontWeight(FontWeight.Bold)
+        .fontColor(TacticalTheme.inverse(this.isDark))
+    }
+    .height(44)
+    .padding({ left: 14, right: 14 })
+    .backgroundColor(this.accent())
+    .alignItems(VerticalAlign.Center)
+    .justifyContent(FlexAlign.Center)
+    .onClick(() => this.onAnalyzeChart(title, context))
+  }
+
+  @Builder
+  chartChoiceButton(title: string, mode: number, icon: Resource) {
+    Row({ space: 8 }) {
+      SymbolGlyph(icon).fontSize(17)
+        .fontColor([(mode === 0 ? this.dailyExpanded : this.todayExpanded) ?
+          TacticalTheme.inverse(this.isDark) : this.accent()])
+      Text(title).fontSize(12).fontWeight(FontWeight.Bold)
+        .fontColor((mode === 0 ? this.dailyExpanded : this.todayExpanded) ?
+          TacticalTheme.inverse(this.isDark) : this.text())
+      Blank()
+      if (mode === 0 ? this.dailyExpanded : this.todayExpanded) {
+        SymbolGlyph($r('sys.symbol.checkmark')).fontSize(13)
+          .fontColor([TacticalTheme.inverse(this.isDark)])
+      }
+    }
+    .layoutWeight(1)
+    .height(48)
+    .padding({ left: 12, right: 12 })
+    .backgroundColor((mode === 0 ? this.dailyExpanded : this.todayExpanded) ? this.accent() : this.raised())
+    .border({ width: 1, color: (mode === 0 ? this.dailyExpanded : this.todayExpanded) ?
+      this.accent() : this.frameTone() })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => {
+      if (mode === 0) {
+        this.dailyExpanded = !this.dailyExpanded;
+        if (this.dailyExpanded) this.todayExpanded = false;
+      } else {
+        this.todayExpanded = !this.todayExpanded;
+        if (this.todayExpanded) this.dailyExpanded = false;
+      }
+    })
+  }
+
+  @Builder
+  logChartChoices() {
+    Column({ space: 8 }) {
+      Row() {
+        Text('日志图表').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.text())
+        Blank()
+        Text('每10秒读取真实统计').fontSize(9).fontColor(this.muted())
+      }.width('100%')
+      Row({ space: 8 }) {
+        this.chartChoiceButton('七日统计', 0, $r('sys.symbol.bolt_fill'))
+        this.chartChoiceButton('今日实时', 1, $r('sys.symbol.clock_fill'))
+      }.width('100%')
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  dailyLogSection() {
+    Column({ space: 10 }) {
+      if (this.dailyExpanded) {
+        if (this.dailyChartResponse.available && this.dailyCategories().length > 0) {
+          Column({ space: 12 }) {
+            Row({ space: 10 }) {
+              this.chartLegend('请求', this.accent())
+              this.chartLegend('AI消息', this.secondary())
+              this.chartLegend('设备', this.muted())
+            }.width('100%')
+            Row({ space: 6 }) {
+              ForEach(this.dailyCategories(), (label: string, index: number) => {
+                Column({ space: 6 }) {
+                  Row({ space: 2 }) {
+                    Column().layoutWeight(1)
+                      .height(this.backendBarHeight(this.chartNumber(this.dailySeries('请求数'), index)))
+                      .backgroundColor(this.accent())
+                    Column().layoutWeight(1)
+                      .height(this.backendBarHeight(this.chartNumber(this.dailySeries('对话数'), index)))
+                      .backgroundColor(this.secondary())
+                    Column().layoutWeight(1)
+                      .height(this.backendBarHeight(this.chartNumber(this.dailySeries('设备操作'), index)))
+                      .backgroundColor(this.muted())
+                  }.width('100%').height(86).alignItems(VerticalAlign.Bottom)
+                  Text(label).fontSize(9).fontColor(this.muted()).maxLines(1)
+                  Text(`请${this.chartNumber(this.dailySeries('请求数'), index)} · ` +
+                    `对${this.chartNumber(this.dailySeries('对话数'), index)}`)
+                    .fontSize(8).fontColor(this.secondary()).maxLines(1)
+                }.layoutWeight(1).alignItems(HorizontalAlign.Center)
+              }, (label: string) => label)
+            }.width('100%').height(124).alignItems(VerticalAlign.Bottom)
+            this.analyzeButton('最近七日日志趋势', this.dailyChartContext())
+          }
+          .width('100%').padding(14).backgroundColor(this.raised())
+          .border({ width: { left: 1, right: 1, bottom: 1 }, color: this.frameTone() })
+        } else {
+          this.emptyState('后端图表接口暂无七日统计')
+        }
+      }
+    }.width('100%')
+  }
+
+  @Builder
+  todayMetricRow(label: string, value: number, max: number, color: string) {
+    Column({ space: 5 }) {
+      Row() {
+        Text(label).fontSize(11).fontColor(this.secondary())
+        Blank()
+        Text(`${value}`).fontSize(12).fontWeight(FontWeight.Bold).fontColor(color)
+      }.width('100%')
+      Progress({ value: max > 0 ? value / max * 100 : 0, total: 100, type: ProgressType.Linear })
+        .width('100%').height(6).color(color).backgroundColor(TacticalTheme.panelMuted(this.isDark))
+        .style({ strokeWidth: 6 })
+    }.width('100%')
+  }
+
+  @Builder
+  realtimeTile(value: string, label: string) {
+    Column({ space: 3 }) {
+      Text(value).fontSize(18).fontWeight(FontWeight.Bold).fontColor(this.text())
+      Text(label).fontSize(9).fontColor(this.muted())
+    }.layoutWeight(1).height(58).justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Start)
+      .padding({ left: 10 }).backgroundColor(this.panel())
+  }
+
+  @Builder
+  todayLogSection() {
+    Column({ space: 10 }) {
+      if (this.todayExpanded) {
+        if (this.todayChartResponse.available && this.todayGaugeData().date.length > 0) {
+          Column({ space: 10 }) {
+            Text(this.todayGaugeData().date).fontSize(10).fontWeight(FontWeight.Bold).fontColor(this.accent())
+              .width('100%')
+            this.todayMetricRow('请求总数', this.todayGaugeData().totalRequests,
+              Math.max(1, this.todayGaugeData().totalRequests), this.accent())
+            this.todayMetricRow('AI消息（双向）', this.todayGaugeData().totalChat,
+              Math.max(1, this.todayGaugeData().totalRequests), this.secondary())
+            this.todayMetricRow('设备操作', this.todayGaugeData().totalDeviceOps,
+              Math.max(1, this.todayGaugeData().totalRequests), this.muted())
+            this.todayMetricRow('安全事件', this.todayGaugeData().totalSecurityEvents,
+              Math.max(1, this.todayGaugeData().totalRequests), this.danger())
+            Row({ space: 6 }) {
+              this.realtimeTile(`${this.todayGaugeData().onlineDevices}/${this.todayGaugeData().totalDevices}`, '在线设备')
+              this.realtimeTile(`${this.todayGaugeData().onlineSensors}/${this.todayGaugeData().totalSensors}`, '在线传感器')
+            }.width('100%')
+            this.analyzeButton('今日日志与实时状态', this.todayChartContext())
+          }.width('100%').padding(14).backgroundColor(this.raised())
+            .border({ width: { left: 1, right: 1, bottom: 1 }, color: this.frameTone() })
+        } else {
+          this.emptyState('后端图表接口暂无今日实时数据')
+        }
+      }
+    }.width('100%')
+  }
+
+  @Builder
+  filterChip(label: string, value: number, sourceFilter: boolean) {
+    Stack({ alignContent: Alignment.Center }) {
+      Row({ space: 4 }) {
+        if ((sourceFilter ? this.operationSourceFilter : this.operationResultFilter) === value) {
+          SymbolGlyph($r('sys.symbol.checkmark')).fontSize(12)
+            .fontColor([TacticalTheme.inverse(this.isDark)])
+        }
+        Text(label).fontSize(10)
+          .fontWeight((sourceFilter ? this.operationSourceFilter : this.operationResultFilter) === value ?
+            FontWeight.Bold : FontWeight.Regular)
+          .fontColor((sourceFilter ? this.operationSourceFilter : this.operationResultFilter) === value ?
+            TacticalTheme.inverse(this.isDark) : this.secondary())
+      }.justifyContent(FlexAlign.Center)
+      Column()
+        .width((sourceFilter ? this.operationSourceFilter : this.operationResultFilter) === value ? '100%' : 0)
+        .height(3)
+        .backgroundColor(TacticalTheme.inverse(this.isDark))
+        .position({ x: 0, y: 31 })
+        .animation({ duration: TacticalMotion.SWITCH, curve: Curve.EaseOut })
+    }
+    .height(38)
+    .layoutWeight(1)
+    .backgroundColor((sourceFilter ? this.operationSourceFilter : this.operationResultFilter) === value ?
+      this.accent() : this.raised())
+    .border({
+      width: (sourceFilter ? this.operationSourceFilter : this.operationResultFilter) === value ? 2 : 1,
+      color: (sourceFilter ? this.operationSourceFilter : this.operationResultFilter) === value ?
+        this.accent() : this.frameTone()
+    })
+    .animation({ duration: TacticalMotion.SWITCH, curve: Curve.EaseOut })
+    .accessibilityText(`${label}${(sourceFilter ? this.operationSourceFilter : this.operationResultFilter) === value ? '，已选择' : ''}`)
+    .onClick(() => {
+      if (sourceFilter) this.operationSourceFilter = value;
+      else this.operationResultFilter = value;
+    })
+  }
+
+  @Builder
+  aiConversationRow(log: AiConversationLog) {
+    Row({ space: 10 }) {
+      Column().width(3).height(38)
+        .backgroundColor(log.role === 'user' ? this.secondary() : this.accent())
+      Column({ space: 4 }) {
+        Text(log.role === 'user' ? '用户' : '明日家居')
+          .fontSize(10).fontWeight(FontWeight.Bold)
+          .fontColor(log.role === 'user' ? this.secondary() : this.accent())
+        Text(log.content).fontSize(11).lineHeight(17).fontColor(this.text()).width('100%')
+          .copyOption(CopyOptions.LocalDevice)
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+    }
+    .width('100%').padding(10).backgroundColor(this.raised())
+    .border({ width: { bottom: 1 }, color: this.frameTone() })
+    .alignItems(VerticalAlign.Top)
+  }
+
+  @Builder
+  operationRow(operation: OperationLogRecord) {
+    Column({ space: 8 }) {
+      Row({ space: 8 }) {
+        Column().width(3).height(34).backgroundColor(
+          operation.result === 'ok' || operation.result === 'success' ? this.accent() : this.danger())
+        Column({ space: 3 }) {
+          Text(`${operation.deviceId} · ${this.actionLabel(operation.action)}`)
+            .fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.text()).maxLines(1)
+          Text(`${operation.source} · ${this.operationTimeText(operation)}`)
+            .fontSize(9).fontColor(this.muted()).maxLines(1)
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        Text(operation.result === 'ok' || operation.result === 'success' ? '成功' : '失败')
+          .fontSize(10).fontWeight(FontWeight.Bold)
+          .fontColor(operation.result === 'ok' || operation.result === 'success' ? this.accent() : this.danger())
+        SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(14).fontColor([this.muted()])
+          .rotate({ angle: this.expandedOperationKey === operation.key ? 90 : 0 })
+      }.width('100%').alignItems(VerticalAlign.Center)
+      if (this.expandedOperationKey === operation.key) {
+        Column({ space: 5 }) {
+          Text(`动作：${operation.action}`).fontSize(10).fontColor(this.secondary())
+          Text(`参数：${operation.params}`).fontSize(10).fontColor(this.secondary()).copyOption(CopyOptions.LocalDevice)
+          Text(`来源：${operation.source}${operation.sceneId ? ` · 场景 ${operation.sceneId}` : ''}`)
+            .fontSize(10).fontColor(this.secondary())
+          Text(`时间：${operation.timestamp || this.operationTimeText(operation)}`).fontSize(10).fontColor(this.secondary())
+        }.width('100%').padding({ left: 11, top: 6 }).alignItems(HorizontalAlign.Start)
+      }
+    }
+    .width('100%').padding(10).backgroundColor(this.raised())
+    .border({ width: { bottom: 1 }, color: this.frameTone() })
+    .onClick(() => {
+      this.expandedOperationKey = this.expandedOperationKey === operation.key ? '' : operation.key;
+    })
+  }
+
+  @Builder
+  operationsSection() {
+    Column({ space: 10 }) {
+      this.disclosureHeader('操作日志详情', `每10秒更新 · 数据库共 ${this.operationFeed.total} 条`,
+        this.operationsExpanded, () => { this.operationsExpanded = !this.operationsExpanded; })
+      if (this.operationsExpanded) {
+        Column({ space: 10 }) {
+          Row({ space: 5 }) {
+            this.filterChip('全部', 0, false)
+            this.filterChip('成功', 1, false)
+            this.filterChip('失败', 2, false)
+          }.width('100%')
+          Row({ space: 5 }) {
+            this.filterChip('全部来源', 0, true)
+            this.filterChip('接口', 1, true)
+            this.filterChip('场景', 2, true)
+            this.filterChip('本地', 3, true)
+          }.width('100%')
+          Text(`当前：${this.operationResultFilter === 0 ? '全部结果' :
+            this.operationResultFilter === 1 ? '成功' : '失败'} / ${this.operationSourceFilter === 0 ? '全部来源' :
+            this.operationSourceFilter === 1 ? '接口' : this.operationSourceFilter === 2 ? '场景' : '本地'} · ` +
+            `显示 ${this.filteredOperations().length} 条`)
+            .fontSize(10).fontWeight(FontWeight.Bold).fontColor(this.accent()).width('100%')
+          if (this.filteredOperations().length > 0) {
+            ForEach(this.filteredOperations(), (operation: OperationLogRecord) => {
+              this.operationRow(operation)
+            }, (operation: OperationLogRecord) => operation.key)
+          } else {
+            this.emptyState(this.operationFeed.available ? '当前筛选条件没有记录' : '操作日志接口不可达')
+          }
+        }.width('100%').padding(10).backgroundColor(this.panel())
+          .border({ width: { left: 1, right: 1, bottom: 1 }, color: this.frameTone() })
+      }
+    }.width('100%')
+  }
+
+  @Builder
+  collectedLogsSection() {
+    Column({ space: 10 }) {
+      this.disclosureHeader('详细日志收集',
+        `默认收起 · AI消息 ${this.aiConversationFeed.logs.length} · 操作 ${this.operationFeed.total}`,
+        this.detailedLogsExpanded, () => { this.detailedLogsExpanded = !this.detailedLogsExpanded; })
+      if (this.detailedLogsExpanded) {
+        Column({ space: 10 }) {
+          this.disclosureHeader('AI 对话日志',
+            this.aiConversationFeed.available ?
+              `${this.aiConversationFeed.logs.length} 条最近消息 · 每10秒更新` : '后端对话上下文接口不可达',
+            this.aiLogsExpanded, () => { this.aiLogsExpanded = !this.aiLogsExpanded; })
+          if (this.aiLogsExpanded) {
+            Column({ space: 0 }) {
+              if (this.aiConversationFeed.logs.length > 0) {
+                ForEach(this.aiConversationFeed.logs, (log: AiConversationLog) => {
+                  this.aiConversationRow(log)
+                }, (log: AiConversationLog) => log.key)
+              } else {
+                this.emptyState(this.aiConversationFeed.available ? '后端没有返回最近对话' : 'AI 对话日志接口不可达')
+              }
+            }.width('100%')
+          }
+
+          this.operationsSection()
+
+          this.disclosureHeader('重点危险信息', `${this.dangerAlerts().length} 条 · 最多显示最新20条`,
+            this.dangerLogsExpanded, () => { this.dangerLogsExpanded = !this.dangerLogsExpanded; })
+          if (this.dangerLogsExpanded) {
+            Column({ space: 8 }) {
+              if (this.dangerAlerts().length > 0) {
+                ForEach(this.dangerAlerts().slice(0, 20), (alert: AlertMessage) => {
+                  this.alertRow(alert, true)
+                }, (alert: AlertMessage) => alert.id)
+              } else {
+                this.emptyState(this.logsAvailable ? '暂无危险或警告日志' : '日志与安全事件接口不可达')
+              }
+            }.width('100%')
+          }
+
+          this.disclosureHeader('普通信息', `${this.normalAlerts().length} 条 · 最多显示最新20条`,
+            this.normalLogsExpanded, () => { this.normalLogsExpanded = !this.normalLogsExpanded; })
+          if (this.normalLogsExpanded) {
+            Column({ space: 8 }) {
+              if (this.normalAlerts().length > 0) {
+                ForEach(this.normalAlerts().slice(0, 20), (alert: AlertMessage) => {
+                  this.alertRow(alert, false)
+                }, (alert: AlertMessage) => alert.id)
+              } else {
+                this.emptyState(this.logsAvailable ? '暂无普通日志' : '日志接口不可达')
+              }
+            }.width('100%')
+          }
+        }.width('100%')
+      }
+    }.width('100%')
+  }
+
+  @Builder
   logsPage() {
     Column({ space: 14 }) {
       Row({ space: 8 }) {
-        this.metricTile(`${this.alerts.length}`, '日志总数')
+        this.metricTile(`${this.alerts.length}`, '已载入日志')
         this.metricTile(`${this.dangerAlerts().length}`, '重点信息', true)
         this.metricTile(`${this.normalAlerts().length}`, '普通信息')
       }
       .width('100%')
+
+      this.logChartChoices()
+      this.dailyLogSection()
+      this.todayLogSection()
 
       Column({ space: 10 }) {
         this.severityBar('危险', this.levelCount('danger'), this.danger())
@@ -393,45 +1076,7 @@ export struct HistoryPage {
       .backgroundColor(this.panel())
       .border({ width: { bottom: 1 }, color: this.frameTone() })
 
-      Row({ space: 10 }) {
-        Column({ space: 3 }) {
-          Text('边缘鉴权 / V5.2').fontSize(9).fontWeight(FontWeight.Bold).fontColor(this.accent())
-          Text(this.authStatus.available ? (this.authStatus.enableAuth ? '边缘验签已启用' : '边缘验签兼容模式') : '鉴权状态接口离线')
-            .fontSize(13).fontWeight(FontWeight.Bold).fontColor(this.text())
-          Text(this.authStatus.available ?
-            `门禁密码 ${this.authStatus.doorPasswordRequired ? '必需' : '未启用'} · 密钥 ${this.authStatus.sharedKeySet ? '已配置' : '未配置'}` :
-            '未读取任何鉴权默认值')
-            .fontSize(10).fontColor(this.muted())
-        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-        Column({ space: 2 }) {
-          Text(this.securityStats.available ? `${this.securityStats.today}` : '--')
-            .fontSize(25).fontWeight(FontWeight.Bold).fontColor(this.securityStats.today > 0 ? this.danger() : this.accent())
-          Text('今日拦截').fontSize(9).fontColor(this.muted())
-        }.alignItems(HorizontalAlign.End)
-      }
-      .width('100%').padding(12).backgroundColor(this.raised()).border({ width: { bottom: 1 }, color: this.frameTone() })
-
-      Column({ space: 8 }) {
-        Text('重点危险信息').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.text())
-        if (this.dangerAlerts().length > 0) {
-          ForEach(this.dangerAlerts(), (alert: AlertMessage) => { this.alertRow(alert, true) }, (alert: AlertMessage) => alert.id)
-        } else {
-          this.emptyState(this.logsAvailable ? '暂无危险或警告日志' : '日志与安全事件接口不可达')
-        }
-      }
-      .width('100%')
-      .alignItems(HorizontalAlign.Start)
-
-      Column({ space: 8 }) {
-        Text('普通信息').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.text())
-        if (this.normalAlerts().length > 0) {
-          ForEach(this.normalAlerts(), (alert: AlertMessage) => { this.alertRow(alert, false) }, (alert: AlertMessage) => alert.id)
-        } else {
-          this.emptyState(this.logsAvailable ? '暂无普通日志' : '日志接口不可达')
-        }
-      }
-      .width('100%')
-      .alignItems(HorizontalAlign.Start)
+      this.collectedLogsSection()
     }
     .width('100%')
   }
@@ -448,6 +1093,7 @@ export struct HistoryPage {
         Column({ space: 3 }) {
           Text(device.name).fontSize(14).fontWeight(FontWeight.Bold).fontColor(this.text()).maxLines(1)
           Text(`${device.room} / ${device.id}`).fontSize(10).fontColor(this.muted()).maxLines(1)
+          Text(this.deviceCapabilityText(device.id)).fontSize(9).fontColor(this.accent()).maxLines(2)
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)

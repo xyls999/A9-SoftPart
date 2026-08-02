@@ -3,7 +3,7 @@
  * 策略: HTTP POST /api/chat/send 获取真实回复
  * 流式: 网关返回完整文本，前端模拟逐字打字效果
  */
-import { ChatMessage, ChatRole } from './types';
+import { ChartData, ChatMessage, ChatRole } from './types';
 import { Http } from './http';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
@@ -30,6 +30,7 @@ interface ChatReplyResponse {
   tts_audio?: string;
   error?: string;
   code?: number;
+  chartData?: ChartData;
 }
 
 interface VoiceInputRequest {
@@ -76,21 +77,59 @@ export interface ChatBackendStatus {
 }
 
 export class ChatApi {
+  private static expectedChartType(text: string): string {
+    if (text.includes('对话来源')) return 'chat_source_pie';
+    if (text.includes('操作时段') || text.includes('操作热力')) return 'ops_heatmap';
+    if (text.includes('安全趋势')) return 'security_trend';
+    if (text.includes('设备分布') || text.includes('设备类型')) return 'device_pie';
+    if (text.includes('设备状态') || text.includes('房间设备')) return 'device_status_bar';
+    if (text.includes('区域状态') || text.includes('区域健康')) return 'area_radar';
+    if (text.includes('能耗') || text.includes('用电')) return 'energy_bar';
+    if (text.includes('温度')) return 'temp_line';
+    if (text.includes('湿度')) return 'humid_line';
+    if (text.includes('安全')) return 'security_pie';
+    if (text.includes('AI对话') || text.includes('对话趋势')) return 'chat_line';
+    if (text.includes('设备操作') || text.includes('操作统计')) return 'ops_bar';
+    if (text.includes('在线率') || text.includes('设备在线')) return 'online_area';
+    if (text.includes('今日实时') || text.includes('今日统计')) return 'today_gauge';
+    if (text.includes('请求趋势') || text.includes('七日趋势')) return 'daily_line';
+    if (text.includes('七日统计') || text.includes('请求统计')) return 'daily_bar';
+    if (text.includes('综合') || text.includes('概览') || text.includes('总览')) return 'overview';
+    return '';
+  }
+
+  private static async alignChartData(text: string, current: ChartData | undefined): Promise<ChartData | undefined> {
+    const expected = ChatApi.expectedChartType(text);
+    if (!expected || current?.chart_type === expected) return current;
+    const raw = await Http.get(`/api/log/chart?type=${expected}&days=7`);
+    if (!raw) return current;
+    try {
+      const aligned = JSON.parse(raw) as ChartData;
+      return aligned.charts && aligned.charts.length > 0 ? aligned : current;
+    } catch (e) {
+      return current;
+    }
+  }
+
   /** 获取后端完整回复，由需要自行控制呈现节奏的页面使用。 */
   static async sendComplete(messages: ChatMessage[]): Promise<ChatMessage> {
     let currentMessage = '';
+    let currentContext = '';
     for (let index = messages.length - 1; index >= 0; index--) {
       if (messages[index].role === ChatRole.USER && messages[index].content.trim().length > 0) {
         currentMessage = messages[index].content.trim();
+        currentContext = messages[index].context ? messages[index].context?.trim() || '' : '';
         break;
       }
     }
     if (!currentMessage) throw new Error('请输入消息');
     const body: ChatSendRequest = {
-      message: currentMessage,
+      message: currentContext.length > 0 ?
+        `${currentMessage}\n\n[前端图表结构化数据]\n${currentContext}` : currentMessage,
       messages: messages.map((message: ChatMessage): ChatPayloadMessage => ({
         role: message.role,
-        content: message.content
+        content: message.context && message.context.trim().length > 0 ?
+          `${message.content}\n\n[前端图表结构化数据]\n${message.context}` : message.content
       }))
     };
     hilog.info(DOMAIN, TAG, `sendComplete start, msgs=${messages.length}`);
@@ -100,23 +139,30 @@ export class ChatApi {
 
     let reply: string = '';
     let backendError: string = '';
+    let chartData: ChartData | undefined = undefined;
     try {
       const resp = JSON.parse(respText) as ChatReplyResponse;
       backendError = resp.error || '';
       reply = resp.reply ? resp.reply.trim() : '';
+      chartData = resp.chartData;
     } catch (e) {
       hilog.warn(DOMAIN, TAG, `JSON parse failed, raw: ${respText.substring(0, 80)}`);
       throw new Error('AI 后端返回格式异常');
     }
     if (!reply && backendError) throw new Error(backendError);
     if (!reply) throw new Error('AI 后端没有返回 reply');
+    chartData = await ChatApi.alignChartData(currentMessage, chartData);
+    if (currentContext.length > 0 && !ChatApi.isChartAwareReply(reply)) {
+      reply = ChatApi.chartFallback(currentContext);
+    }
 
     hilog.info(DOMAIN, TAG, `got complete reply, len=${reply.length}`);
     return {
       id: 'msg_' + (msgIdCounter++),
       role: ChatRole.ASSISTANT,
       content: reply,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      chartData: chartData
     };
   }
 
@@ -180,6 +226,25 @@ export class ChatApi {
         }
       });
     });
+  }
+
+  private static isChartAwareReply(reply: string): boolean {
+    if (reply.includes('未配置AI') || reply.includes('AI暂时不可用')) return false;
+    return reply.includes('请求') || reply.includes('AI对话') || reply.includes('AI消息') || reply.includes('设备操作') ||
+      reply.includes('安全事件') || reply.includes('图表') || reply.includes('趋势');
+  }
+
+  private static chartFallback(context: string): string {
+    const lines = context.split('\n');
+    let summary = '';
+    for (const line of lines) {
+      if (line.startsWith('前端校验摘要：')) {
+        summary = line.substring('前端校验摘要：'.length);
+        break;
+      }
+    }
+    if (!summary) summary = '图表数据已收到，但当前数据不足以生成可靠趋势结论';
+    return `图表分析\n${summary}\n\n数据来源：后端实时 ECharts 图表接口。`;
   }
 
   /** 上传 base64 音频并返回后端真实识别文字。 */

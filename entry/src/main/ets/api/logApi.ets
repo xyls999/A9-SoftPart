@@ -7,14 +7,70 @@ interface OperationResponse {
   id?: string;
   device_id?: string;
   action?: string;
+  params?: string;
   result?: string;
   source?: string;
+  scene_id?: string | null;
   timestamp?: string | number;
 }
 
 interface OperationListResponse {
   operations?: OperationResponse[];
   total?: number;
+  limit?: number;
+}
+
+interface DailyLogResponse {
+  daily?: DailyLogRecord[];
+}
+
+interface TodayLogResponse {
+  today?: DailyLogRecord;
+  realtime?: RealtimeLogState;
+}
+
+interface AiContextResponse {
+  context?: string;
+}
+
+interface RawChartAxis {
+  type?: string;
+  data?: string[];
+}
+
+interface RawChartSeries {
+  name?: string;
+  type?: string;
+  data?: number[];
+}
+
+interface RawGaugeData {
+  date?: string;
+  total_requests?: number;
+  total_chat?: number;
+  total_device_ops?: number;
+  total_security_events?: number;
+  online_devices?: number;
+  total_devices?: number;
+  online_sensors?: number;
+  total_sensors?: number;
+}
+
+interface RawLogChart {
+  id?: string;
+  title?: string;
+  type?: string;
+  xAxis?: RawChartAxis;
+  series?: RawChartSeries[];
+  data?: RawGaugeData;
+}
+
+interface RawLogChartResponse {
+  chart_type?: string;
+  keyword?: string;
+  kimi_used?: boolean;
+  days?: number;
+  charts?: RawLogChart[];
 }
 
 interface AlertListResponse {
@@ -101,6 +157,164 @@ export interface LogSnapshot {
   authStatus: EdgeAuthStatus;
 }
 
+export interface DailyLogRecord {
+  id?: number;
+  log_date: string;
+  total_requests: number;
+  total_chat: number;
+  total_device_ops: number;
+  total_security_events: number;
+  devices_online_peak: number;
+  sensors_active: number;
+  summary_json?: Object | string | null;
+  created_at?: string;
+}
+
+export interface RealtimeLogState {
+  online_devices: number;
+  total_devices: number;
+  online_sensors: number;
+  total_sensors: number;
+  ws_clients: number;
+  mqtt_clients: number;
+}
+
+export interface TodayLogSnapshot {
+  available: boolean;
+  today: DailyLogRecord | null;
+  realtime: RealtimeLogState | null;
+}
+
+export interface OperationLogRecord {
+  key: string;
+  deviceId: string;
+  action: string;
+  params: string;
+  result: string;
+  source: string;
+  sceneId: string;
+  timestamp: string;
+  timestampMs: number;
+}
+
+export interface OperationFeed {
+  available: boolean;
+  total: number;
+  limit: number;
+  operations: OperationLogRecord[];
+}
+
+export interface AiConversationLog {
+  key: string;
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface AiConversationFeed {
+  available: boolean;
+  source: string;
+  logs: AiConversationLog[];
+}
+
+export interface LogChartSeries {
+  name: string;
+  type: string;
+  data: number[];
+}
+
+export interface LogGaugeData {
+  date: string;
+  totalRequests: number;
+  totalChat: number;
+  totalDeviceOps: number;
+  totalSecurityEvents: number;
+  onlineDevices: number;
+  totalDevices: number;
+  onlineSensors: number;
+  totalSensors: number;
+}
+
+export interface LogChart {
+  id: string;
+  title: string;
+  type: string;
+  categories: string[];
+  series: LogChartSeries[];
+  gauge: LogGaugeData | null;
+}
+
+export interface LogChartResponse {
+  available: boolean;
+  chartType: string;
+  keyword: string;
+  kimiUsed: boolean;
+  days: number;
+  charts: LogChart[];
+  raw: string;
+}
+
+function emptyGauge(): LogGaugeData {
+  return {
+    date: '', totalRequests: 0, totalChat: 0, totalDeviceOps: 0, totalSecurityEvents: 0,
+    onlineDevices: 0, totalDevices: 0, onlineSensors: 0, totalSensors: 0
+  };
+}
+
+function normalizeGauge(raw: RawGaugeData | undefined): LogGaugeData | null {
+  if (!raw || typeof raw.date !== 'string') return null;
+  const gauge = emptyGauge();
+  gauge.date = raw.date;
+  gauge.totalRequests = raw.total_requests || 0;
+  gauge.totalChat = raw.total_chat || 0;
+  gauge.totalDeviceOps = raw.total_device_ops || 0;
+  gauge.totalSecurityEvents = raw.total_security_events || 0;
+  gauge.onlineDevices = raw.online_devices || 0;
+  gauge.totalDevices = raw.total_devices || 0;
+  gauge.onlineSensors = raw.online_sensors || 0;
+  gauge.totalSensors = raw.total_sensors || 0;
+  return gauge;
+}
+
+function normalizeChart(raw: RawLogChart): LogChart {
+  const series: LogChartSeries[] = [];
+  for (const item of raw.series || []) {
+    series.push({ name: item.name || '', type: item.type || '', data: item.data || [] });
+  }
+  return {
+    id: raw.id || '', title: raw.title || '', type: raw.type || '',
+    categories: raw.xAxis?.data || [], series: series, gauge: normalizeGauge(raw.data)
+  };
+}
+
+function parseAiContext(context: string): AiConversationLog[] {
+  const result: AiConversationLog[] = [];
+  const lines = context.split('\n');
+  let started = false;
+  let role: 'user' | 'assistant' = 'user';
+  let content = '';
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line === '最近对话:') {
+      started = true;
+      continue;
+    }
+    if (!started) continue;
+    if (line.startsWith('用户:')) {
+      if (content.length > 0) result.push({ key: `ai_${result.length}`, role: role, content: content });
+      role = 'user';
+      content = line.substring(3).trim();
+    } else if (line.startsWith('助手:')) {
+      if (content.length > 0) result.push({ key: `ai_${result.length}`, role: role, content: content });
+      role = 'assistant';
+      content = line.substring(3).trim();
+    } else if (line.length > 0 && content.length > 0) {
+      content += `\n${line}`;
+    }
+  }
+  if (content.length > 0) result.push({ key: `ai_${result.length}`, role: role, content: content });
+  return result;
+}
+
 function operationTime(value: string | number | undefined): number {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
@@ -125,6 +339,37 @@ function operationMessage(raw: OperationResponse, index: number): AlertMessage {
     timestamp: timestamp,
     isRead: true
   };
+}
+
+function normalizeOperation(raw: OperationResponse, index: number): OperationLogRecord {
+  const timestampMs = operationTime(raw.timestamp);
+  const timestamp = typeof raw.timestamp === 'string' ? raw.timestamp : '';
+  const deviceId = raw.device_id || 'system';
+  const action = raw.action || 'operation';
+  return {
+    key: raw.id || `${deviceId}_${action}_${timestampMs}_${index}`,
+    deviceId: deviceId,
+    action: action,
+    params: raw.params || '{}',
+    result: raw.result || 'unknown',
+    source: raw.source || 'unknown',
+    sceneId: raw.scene_id || '',
+    timestamp: timestamp,
+    timestampMs: timestampMs
+  };
+}
+
+function emptyDailyRecord(): DailyLogRecord {
+  return {
+    log_date: '', total_requests: 0, total_chat: 0, total_device_ops: 0,
+    total_security_events: 0, devices_online_peak: 0, sensors_active: 0
+  };
+}
+
+function validDailyRecord(record: DailyLogRecord | undefined): boolean {
+  return record !== undefined && typeof record.log_date === 'string' &&
+    typeof record.total_requests === 'number' && typeof record.total_chat === 'number' &&
+    typeof record.total_device_ops === 'number' && typeof record.total_security_events === 'number';
 }
 
 function securityLevel(value: string | undefined): 'info' | 'warning' | 'danger' {
@@ -198,17 +443,109 @@ function emptyAuthStatus(): EdgeAuthStatus {
 }
 
 export class LogApi {
-  static async getOperations(): Promise<AlertMessage[]> {
-    const text = await Http.get('/api/operations');
+  static async getChart(type: string, days: number = 7): Promise<LogChartResponse> {
+    const safeDays = Math.max(1, Math.min(30, Math.floor(days)));
+    const empty: LogChartResponse = {
+      available: false, chartType: '', keyword: type, kimiUsed: false, days: safeDays, charts: [], raw: ''
+    };
+    const text = await Http.get(`/api/log/chart?type=${encodeURIComponent(type)}&days=${safeDays}`);
+    if (!text) return empty;
+    try {
+      const data = JSON.parse(text) as RawLogChartResponse;
+      const charts: LogChart[] = [];
+      for (const raw of data.charts || []) charts.push(normalizeChart(raw));
+      return {
+        available: charts.length > 0,
+        chartType: data.chart_type || '',
+        keyword: data.keyword || type,
+        kimiUsed: data.kimi_used || false,
+        days: data.days || safeDays,
+        charts: charts,
+        raw: text
+      };
+    } catch (e) {
+      return empty;
+    }
+  }
+
+  static async getAiConversationFeed(limit: number = 20): Promise<AiConversationFeed> {
+    const safeLimit = Math.max(2, Math.min(50, Math.floor(limit)));
+    const empty: AiConversationFeed = { available: false, source: '/api/ai/context', logs: [] };
+    const text = await Http.get(`/api/ai/context?limit=${safeLimit}`);
+    if (!text) return empty;
+    try {
+      const data = JSON.parse(text) as AiContextResponse;
+      if (typeof data.context !== 'string') return empty;
+      const logs = parseAiContext(data.context);
+      return {
+        available: true,
+        source: '/api/ai/context',
+        logs: logs.length > safeLimit ? logs.slice(logs.length - safeLimit) : logs
+      };
+    } catch (e) {
+      return empty;
+    }
+  }
+
+  static async getDaily(days: number = 7): Promise<DailyLogRecord[]> {
+    const safeDays = Math.max(1, Math.min(30, Math.floor(days)));
+    const text = await Http.get(`/api/log/daily?days=${safeDays}`);
     if (!text) return [];
     try {
-      const parsed = JSON.parse(text) as Object;
-      const data = Array.isArray(parsed) ? parsed as OperationResponse[] :
-        (parsed as OperationListResponse).operations || [];
-      return data.map((raw: OperationResponse, index: number): AlertMessage => operationMessage(raw, index));
+      const data = JSON.parse(text) as DailyLogResponse;
+      const records = data.daily || [];
+      return records.filter((record: DailyLogRecord) => validDailyRecord(record));
     } catch (e) {
       return [];
     }
+  }
+
+  static async getToday(): Promise<TodayLogSnapshot> {
+    const empty: TodayLogSnapshot = { available: false, today: null, realtime: null };
+    const text = await Http.get('/api/log/today');
+    if (!text) return empty;
+    try {
+      const data = JSON.parse(text) as TodayLogResponse;
+      if (!validDailyRecord(data.today)) return empty;
+      return { available: true, today: data.today || emptyDailyRecord(), realtime: data.realtime || null };
+    } catch (e) {
+      return empty;
+    }
+  }
+
+  static async getOperationFeed(limit: number = 100): Promise<OperationFeed> {
+    const safeLimit = Math.max(10, Math.min(200, Math.floor(limit)));
+    const empty: OperationFeed = { available: false, total: 0, limit: safeLimit, operations: [] };
+    const text = await Http.get(`/api/operations?limit=${safeLimit}`);
+    if (!text) return empty;
+    try {
+      const parsed = JSON.parse(text) as Object;
+      const envelope = Array.isArray(parsed) ? null : parsed as OperationListResponse;
+      const records = Array.isArray(parsed) ? parsed as OperationResponse[] : envelope?.operations || [];
+      const normalized: OperationLogRecord[] = [];
+      const count = Math.min(records.length, safeLimit);
+      for (let index = 0; index < count; index++) normalized.push(normalizeOperation(records[index], index));
+      return {
+        available: true,
+        total: envelope && typeof envelope.total === 'number' ? envelope.total : records.length,
+        limit: envelope && typeof envelope.limit === 'number' ? envelope.limit : safeLimit,
+        operations: normalized
+      };
+    } catch (e) {
+      return empty;
+    }
+  }
+
+  static async getOperations(): Promise<AlertMessage[]> {
+    const feed = await LogApi.getOperationFeed(100);
+    return feed.operations.map((record: OperationLogRecord, index: number): AlertMessage => ({
+      id: record.key,
+      source: record.deviceId,
+      content: `${record.action} / ${record.result}`,
+      level: record.result === 'ok' || record.result === 'success' ? 'info' : 'warning',
+      timestamp: record.timestampMs,
+      isRead: true
+    }));
   }
 
   static async getSnapshot(): Promise<LogSnapshot> {
@@ -243,7 +580,8 @@ export class LogApi {
         const parsed = JSON.parse(operationText) as Object;
         const data = Array.isArray(parsed) ? parsed as OperationResponse[] :
           (parsed as OperationListResponse).operations || [];
-        for (let index = 0; index < data.length; index++) alerts.push(operationMessage(data[index], index));
+        const count = Math.min(data.length, 40);
+        for (let index = 0; index < count; index++) alerts.push(operationMessage(data[index], index));
         successCount++;
       } catch (e) {
       }

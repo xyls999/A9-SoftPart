@@ -8,6 +8,7 @@ import { ChatMessage, ChatRole } from '../api/types';
 import { AppColors } from '../theme/Colors';
 import { AppSpace } from '../theme/Spacing';
 import { AppFont } from '../theme/Typography';
+import { ChatChartPanel } from './ChatChartPanel';
 
 @Component
 export struct ChatBubble {
@@ -35,26 +36,28 @@ export struct ChatBubble {
       }
 
       // 气泡内容
-      Text(this.message.content + (this.message.isStreaming ? '▍' : ''))
-        .fontSize(AppFont.SIZE_BODY)
-        .lineHeight(22)
-        .fontColor(this.message.role === ChatRole.USER ? AppColors.TEXT_INVERSE : AppColors.TEXT_PRIMARY)
-        .padding({
-          left: AppSpace.BASE, right: AppSpace.BASE,
-          top: AppSpace.SM + 2, bottom: AppSpace.SM + 2
-        })
-        .borderRadius({
-          topLeft: this.message.role === ChatRole.ASSISTANT ? 4 : AppSpace.RADIUS_BASE,
-          topRight: this.message.role === ChatRole.USER ? 4 : AppSpace.RADIUS_BASE,
-          bottomLeft: AppSpace.RADIUS_BASE,
-          bottomRight: AppSpace.RADIUS_BASE
-        })
-        .backgroundColor(this.message.role === ChatRole.USER ? AppColors.PRIMARY : AppColors.BG_CARD)
-        .border(this.message.role === ChatRole.ASSISTANT ? { width: 0.5, color: AppColors.HAIRLINE } : { width: 0, color: '#00000000' })
-        .constraintSize({ maxWidth: '72%' })
-        .shadow(this.message.role === ChatRole.USER ? {
-          radius: 8, color: '#0D007DFF', offsetX: 0, offsetY: 2
-        } : { radius: 0, color: '#00000000', offsetX: 0, offsetY: 0 })
+      if (this.message.role === ChatRole.ASSISTANT) {
+        Column({ space: 8 }) {
+          Text(this.message.content + (this.message.isStreaming ? '▍' : ''))
+            .fontSize(AppFont.SIZE_BODY).lineHeight(22).fontColor(AppColors.TEXT_PRIMARY).width('100%')
+          if (this.message.chartData && this.message.chartData.charts && this.message.chartData.charts.length > 0) {
+            ChatChartPanel({ chartData: this.message.chartData, isDark: false })
+          }
+        }
+        .padding({ left: AppSpace.BASE, right: AppSpace.BASE, top: AppSpace.SM + 2, bottom: AppSpace.SM + 2 })
+        .borderRadius({ topLeft: 4, topRight: AppSpace.RADIUS_BASE,
+          bottomLeft: AppSpace.RADIUS_BASE, bottomRight: AppSpace.RADIUS_BASE })
+        .backgroundColor(AppColors.BG_CARD).border({ width: 0.5, color: AppColors.HAIRLINE })
+        .constraintSize({ maxWidth: '82%' })
+      } else {
+        Text(this.message.content + (this.message.isStreaming ? '▍' : ''))
+          .fontSize(AppFont.SIZE_BODY).lineHeight(22).fontColor(AppColors.TEXT_INVERSE)
+          .padding({ left: AppSpace.BASE, right: AppSpace.BASE, top: AppSpace.SM + 2, bottom: AppSpace.SM + 2 })
+          .borderRadius({ topLeft: AppSpace.RADIUS_BASE, topRight: 4,
+            bottomLeft: AppSpace.RADIUS_BASE, bottomRight: AppSpace.RADIUS_BASE })
+          .backgroundColor(AppColors.PRIMARY).constraintSize({ maxWidth: '72%' })
+          .shadow({ radius: 8, color: '#0D007DFF', offsetX: 0, offsetY: 2 })
+      }
 
       if (this.message.role === ChatRole.ASSISTANT) {
         Blank()
