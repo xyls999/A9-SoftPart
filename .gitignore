@@ -11,3 +11,13 @@
 **/.test
 /.appanalyzer
 /work
+
+# Local signing and generated files
+/build-profile.json5
+*.log
+__pycache__/
+*.pyc
+*.p12
+*.cer
+*.pem
+*.key
